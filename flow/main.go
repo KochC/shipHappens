@@ -30,20 +30,16 @@ func Main(w *Workflow) {
 		graphOnly bool
 		jobFlag   string
 		noCache   bool
-		changedFl string
 	)
+	changedVal := &optString{}
 	fs := flag.NewFlagSet(w.Name, flag.ExitOnError)
 	fs.BoolVar(&graphOnly, "graph", false, "print the execution graph and exit")
 	fs.StringVar(&jobFlag, "job", "", "run only this job (and its dependencies)")
 	fs.BoolVar(&noCache, "no-cache", false, "disable step caching")
-	fs.StringVar(&changedFl, "changed", "", "run only jobs affected by git changes vs ref (default main)")
-	changedSet := false
+	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(os.Args[1:])
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "changed" {
-			changedSet = true
-		}
-	})
+	changedSet := changedVal.set
+	changedFl := changedVal.val
 
 	raw := w.ToPlan()
 	plan, err := compile(raw, w.Lines())
@@ -72,7 +68,7 @@ func Main(w *Workflow) {
 		only = dag.Subgraph(jobFlag)
 	} else if changedSet {
 		base := changedFl
-		if base == "" {
+		if base == "" || base == "true" {
 			base = "main"
 		}
 		wd, _ := os.Getwd()
@@ -110,8 +106,7 @@ func Main(w *Workflow) {
 	logs.Success("✓ %s passed in %s  (%d ran, %d cached)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached)
 }
 
-func stepCount(p *compiler.RunPlan) int {
-	n := 0
+func stepCount(p *compiler.RunPlan) int {	n := 0
 	for _, j := range p.Jobs {
 		n += len(j.Steps)
 	}
@@ -141,3 +136,14 @@ func joinComma(s []string) string {
 	}
 	return out
 }
+
+// optString is a flag.Value with an optional argument: "--changed" (bare) sets
+// it with an empty value; "--changed=ref" sets a specific value.
+type optString struct {
+	set bool
+	val string
+}
+
+func (o *optString) String() string     { return o.val }
+func (o *optString) Set(s string) error  { o.set = true; o.val = s; return nil }
+func (o *optString) IsBoolFlag() bool     { return true }
