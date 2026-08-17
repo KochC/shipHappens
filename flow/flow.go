@@ -1,0 +1,138 @@
+// Package flow is the author-facing DSL for defining Ship Happens pipelines.
+// Pipelines are Go programs: build a *Workflow, then hand it to Main.
+package flow
+
+import (
+	"runtime"
+)
+
+// Workflow is a pipeline definition being built by the DSL.
+type Workflow struct {
+	Name string
+	jobs []*Job
+}
+
+// Job is a node in the pipeline being built.
+type Job struct {
+	id     string
+	runsOn string
+	needs  []string
+	steps  []*Step
+	env    map[string]string
+	line   string // "file.go:NN" of the .Job(...) call site
+}
+
+// Step is one command within a job.
+type Step struct {
+	name  string
+	run   string
+	cache *cacheSpec
+}
+
+type cacheSpec struct {
+	inputs  []string
+	outputs []string
+}
+
+// New starts a new workflow with the given name.
+func New(name string) *Workflow {
+	return &Workflow{Name: name}
+}
+
+// Job adds a job with the given id and returns it for further chaining.
+func (w *Workflow) Job(id string) *Job {
+	j := &Job{id: id, runsOn: "native", env: map[string]string{}, line: callerLoc(2)}
+	w.jobs = append(w.jobs, j)
+	return j
+}
+
+// Jobs returns the defined jobs (read-only use by Main/graph).
+func (w *Workflow) Jobs() []*Job { return w.jobs }
+
+// RunsOn sets the execution backend label (default "native").
+func (j *Job) RunsOn(label string) *Job { j.runsOn = label; return j }
+
+// Needs declares dependencies on other jobs.
+func (j *Job) Needs(deps ...*Job) *Job {
+	for _, d := range deps {
+		j.needs = append(j.needs, d.id)
+	}
+	return j
+}
+
+// NeedsID declares a dependency by raw job id. Useful for testing/validation
+// (an unknown id produces a diagnostic).
+func (j *Job) NeedsID(ids ...string) *Job {
+	j.needs = append(j.needs, ids...)
+	return j
+}
+
+// Env sets an environment variable for all steps in the job.
+func (j *Job) Env(key, val string) *Job { j.env[key] = val; return j }
+
+// Run appends a shell-command step to the job.
+func (j *Job) Run(name, command string) *Job {
+	j.steps = append(j.steps, &Step{name: name, run: command})
+	return j
+}
+
+// ID exposes the job id.
+func (j *Job) ID() string { return j.id }
+
+// Cache attaches cache inputs/outputs to the most recently added step.
+func (j *Job) Cache(opts ...CacheOption) *Job {
+	if len(j.steps) == 0 {
+		return j
+	}
+	s := j.steps[len(j.steps)-1]
+	if s.cache == nil {
+		s.cache = &cacheSpec{}
+	}
+	for _, o := range opts {
+		o(s.cache)
+	}
+	return j
+}
+
+// CacheOption configures a step's cache spec.
+type CacheOption func(*cacheSpec)
+
+// Inputs declares file globs whose content contributes to the cache key.
+func Inputs(globs ...string) CacheOption {
+	return func(c *cacheSpec) { c.inputs = append(c.inputs, globs...) }
+}
+
+// Outputs declares file globs to store/restore on cache hit.
+func Outputs(globs ...string) CacheOption {
+	return func(c *cacheSpec) { c.outputs = append(c.outputs, globs...) }
+}
+
+func callerLoc(skip int) string {
+	_, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		return "?"
+	}
+	// shorten to base name
+	short := file
+	for i := len(file) - 1; i >= 0; i-- {
+		if file[i] == '/' {
+			short = file[i+1:]
+			break
+		}
+	}
+	return short + ":" + itoa(line)
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

@@ -1,0 +1,42 @@
+package compiler
+
+// RunPlan is the immutable, validated intermediate representation produced by
+// the compiler. The scheduler and runners consume this and never touch the
+// author-facing DSL types.
+type RunPlan struct {
+	Name string
+	Jobs []JobPlan
+}
+
+// JobPlan is a single node in the execution DAG.
+type JobPlan struct {
+	ID     string
+	RunsOn string
+	Needs  []string
+	Env    map[string]string
+	Steps  []StepPlan
+}
+
+// StepPlan is one executable unit within a job.
+type StepPlan struct {
+	ID    string
+	Run   string
+	Cache *CacheSpec
+}
+
+// CacheSpec describes how a step's result may be cached. Only steps with a
+// CacheSpec are cached in M1 (explicit = safe).
+type CacheSpec struct {
+	Inputs  []string
+	Outputs []string
+}
+
+// Job returns the JobPlan with the given id, or nil.
+func (p *RunPlan) Job(id string) *JobPlan {
+	for i := range p.Jobs {
+		if p.Jobs[i].ID == id {
+			return &p.Jobs[i]
+		}
+	}
+	return nil
+}
