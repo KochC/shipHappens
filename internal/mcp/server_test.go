@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chris/shiphappens/internal/logs"
 	"github.com/chris/shiphappens/internal/scheduler"
 )
 
@@ -162,6 +163,62 @@ func TestRunStatusCancelFlow(t *testing.T) {
 	r = call(t, s, "tools/call", map[string]any{"name": "ship_status", "arguments": map[string]any{"runId": id}})
 	if !strings.Contains(toolResultText(t, r), `"state": "passed"`) {
 		t.Errorf("expected passed: %s", toolResultText(t, r))
+	}
+}
+
+// TestRealRunKeepsStdoutClean is a regression test for the bug where the
+// scheduler's streaming logs leaked onto the JSON-RPC stream, corrupting the
+// protocol. It runs a *real* pipeline (not a stubbed runFn) with the logs sink
+// redirected (as cmd/ship-mcp does) and asserts every JSON-RPC response line is
+// valid JSON.
+func TestRealRunKeepsStdoutClean(t *testing.T) {
+	// Route scheduler logs away from the protocol stream, exactly like main().
+	var logSink strings.Builder
+	prev := logs.SetOutput(&logSink)
+	defer logs.SetOutput(prev)
+
+	s := NewServer() // real defaultRunFn → real scheduler
+	f := writeTempPlan(t, `{"name":"R","jobs":[{"id":"a","runsOn":"native","steps":[{"id":"s","run":"echo hi"}]}]}`)
+
+	r := call(t, s, "tools/call", map[string]any{"name": "ship_run", "arguments": map[string]any{"file": f}})
+	var started map[string]any
+	json.Unmarshal([]byte(toolResultText(t, r)), &started)
+	id := started["runId"].(string)
+
+	// Poll to completion, capturing every JSON-RPC output line.
+	var passed bool
+	for i := 0; i < 200; i++ {
+		pb, _ := json.Marshal(map[string]any{"name": "ship_status", "arguments": map[string]any{"runId": id}})
+		req := rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/call", Params: pb}
+		line, _ := json.Marshal(req)
+		var out strings.Builder
+		if err := s.Serve(strings.NewReader(string(line)+"\n"), &out); err != nil {
+			t.Fatalf("serve: %v", err)
+		}
+		// Every non-blank line on the protocol stream MUST be valid JSON.
+		for _, ln := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			if ln == "" {
+				continue
+			}
+			var probe map[string]any
+			if err := json.Unmarshal([]byte(ln), &probe); err != nil {
+				t.Fatalf("non-JSON line on protocol stream (log leak!): %q", ln)
+			}
+		}
+		var resp rpcResponse
+		json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp)
+		if strings.Contains(toolResultText(t, resp), `"state": "passed"`) {
+			passed = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !passed {
+		t.Fatal("real run never reached passed state")
+	}
+	// Sanity: the scheduler *did* emit logs — just to the sink, not the protocol.
+	if logSink.Len() == 0 {
+		t.Error("expected scheduler to have written logs to the redirected sink")
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/chris/shiphappens/internal/logs"
 	"github.com/chris/shiphappens/internal/mcp"
 )
 
@@ -30,6 +31,10 @@ func main() {
 			return
 		}
 	}
+	// stdout is reserved for the JSON-RPC protocol. Route pipeline streaming
+	// logs to stderr so they can't corrupt the protocol stream.
+	logs.SetOutput(os.Stderr)
+
 	mcp.Version = version
 	srv := mcp.NewServer()
 	if err := srv.Serve(os.Stdin, os.Stdout); err != nil {
