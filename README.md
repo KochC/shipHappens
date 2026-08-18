@@ -11,47 +11,46 @@ container or native execution, secrets, and a live terminal dashboard.
 
 ## The DX in 30 seconds
 
-A pipeline is a Go program. This one checks out, lints and tests in parallel,
-then builds — with caching, a container job, and a masked secret:
+A pipeline is a **Pkl** file. This one checks out, lints and tests in parallel,
+then builds — with caching, a container job, a retry, and a masked secret:
 
-```go
-package main
+```pkl
+amends "pkl/ship.pkl"
 
-import "github.com/chris/shiphappens/flow"
+name = "CI"
+vars { ["REGION"] = "eu-west" }
 
-func main() {
-    wf := flow.New("CI").Var("REGION", "eu-west")
+jobs {
+  ["checkout"] { steps { new { id = "clone"; run = "git rev-parse HEAD" } } }
 
-    checkout := wf.Job("checkout").
-        Run("clone", "git rev-parse HEAD")
-
-    lint := wf.Job("lint").Needs(checkout).Image("golang:1.22-alpine").
-        Run("vet", "go vet ./...").
-        Cache(flow.Inputs("**/*.go"))
-
-    test := wf.Job("test").Needs(checkout).
-        Run("unit", "go test ./...").
-        Retry(2).                       // flaky-test resilience
-        Cache(flow.Inputs("**/*.go"))
-
-    wf.Job("build").Needs(lint, test).
-        Secret("NPM_TOKEN").            // resolved from $NPM_TOKEN, masked in logs
-        Run("compile", "go build -o bin/app ./...").
-        Cache(flow.Inputs("**/*.go"), flow.Outputs("bin/**")).
-        Outputs("bin/**")               // restored instantly on --resume
-
-    flow.RunWithTUI(wf)                 // live dashboard
+  ["lint"] {
+    needs { "checkout" }
+    image = "golang:1.22-alpine"       // runs in a container
+    steps { new { id = "vet"; run = "go vet ./..."; cache { inputs { "**/*.go" } } } }
+  }
+  ["test"] {
+    needs { "checkout" }
+    steps { new { id = "unit"; run = "go test ./..."; retries = 2 } }   // flaky-test resilience
+  }
+  ["build"] {
+    needs { "lint"; "test" }
+    secrets { new { name = "NPM_TOKEN" } }   // from $NPM_TOKEN, masked in logs
+    steps { new { id = "compile"; run = "go build -o bin/app ./...";
+                  cache { inputs { "**/*.go" }; outputs { "bin/**" } } } }
+    outputs { "bin/**" }                     // restored instantly on --resume
+  }
 }
 ```
 
 Run it — and watch the DAG light up in the live TUI:
 
 ```bash
-go run .                 # compile → validate → run (lint ∥ test, then build)
-go run . --graph         # just print the DAG
-go run . --resume        # skip unchanged jobs, restore their outputs
-go run . --job test      # run one job (+ its deps)
-go run . --changed       # only jobs affected by git changes
+ship run pipeline.pkl            # compile → validate → run (lint ∥ test, then build)
+ship run pipeline.pkl --graph    # just print the DAG
+ship run pipeline.pkl --resume   # skip unchanged jobs, restore their outputs
+ship run pipeline.pkl --job test # run one job (+ its deps)
+ship run pipeline.pkl --changed  # only jobs affected by git changes
+ship run pipeline.pkl --tui      # live dashboard
 ```
 
 ```
@@ -63,20 +62,9 @@ go run . --changed       # only jobs affected by git changes
   ▸ 2 done · 1 running · 1 pending
 ```
 
-**Prefer declarative config?** The same pipeline in Pkl:
-
-```pkl
-amends "pkl/ship.pkl"
-name = "CI"
-jobs {
-  ["build"] { steps { new { id = "compile"; run = "go build ./..." } }; outputs { "bin/**" } }
-  ["test"]  { needs { "build" }; steps { new { id = "unit"; run = "go test ./..."; retries = 2 } } }
-}
-```
-
-```bash
-ship run pipeline.pkl
-```
+`ship run` evaluates the Pkl with the `pkl` CLI (`brew install pkl`), validates
+the DAG, and executes it. Pipelines can **also** be authored as a Go program or
+raw JSON plan — all lower to the same engine (see [docs/DX.md §13](docs/DX.md#13-also-available-go-dsl--json)).
 
 ---
 
@@ -99,8 +87,8 @@ the `ship` CLI, and Pkl authoring — with a full DSL reference table.
   resume (skip whole unchanged jobs, restore their artifacts).
 - **Fast** — parallel DAG across all your cores; `--changed` runs only what git
   touched.
-- **Three authoring formats** — Go DSL, Pkl, or raw JSON plans — all lowering to
-  the same engine.
+- **Typed, declarative config** — pipelines in Pkl (sandboxed, reviewable);
+  a Go DSL and raw JSON plans also lower to the same engine.
 
 ## Feature highlights
 

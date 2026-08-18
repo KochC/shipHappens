@@ -4,16 +4,22 @@ The complete guide to authoring and running pipelines. For the system design see
 [SPEC.md](../SPEC.md); for the GitHub Actions comparison see
 [gha-gap-analysis.md](gha-gap-analysis.md).
 
-Pipelines can be authored three ways — a **Go DSL**, **Pkl**, or a raw **JSON
-plan** — all of which lower to the same validated plan and run through the same
-engine. Start with the Go DSL.
+Pipelines are authored in **[Pkl](https://pkl-lang.org)** — Apple's typed,
+sandboxed configuration language (declarative, reviewable, diffable; **not**
+Python's `pickle`). A pipeline `amends` the schema at
+[`pkl/ship.pkl`](../pkl/ship.pkl), is evaluated to a validated plan, and runs on
+a parallel DAG engine with caching, resume, containers, secrets, and a live TUI.
+
+> A Go DSL and raw JSON plans are also supported and lower to the same engine
+> (see [§13](#13-also-available-go-dsl--json)). The direction is Pkl-first — see
+> [ADR-0001](adr/0001-authoring-frontends.md).
 
 ---
 
 ## Table of contents
 
 - [1. Hello, pipeline](#1-hello-pipeline)
-- [2. Running a pipeline (CLI flags)](#2-running-a-pipeline-cli-flags)
+- [2. Running a pipeline (the `ship` CLI)](#2-running-a-pipeline-the-ship-cli)
 - [3. Jobs & the DAG](#3-jobs--the-dag)
 - [4. Steps](#4-steps)
 - [5. Containers & execution backends](#5-containers--execution-backends)
@@ -23,52 +29,57 @@ engine. Start with the Go DSL.
 - [9. Timeouts, retries & error handling](#9-timeouts-retries--error-handling)
 - [10. Preheating & storage hygiene](#10-preheating--storage-hygiene)
 - [11. Observability (logs & TUI)](#11-observability-logs--tui)
-- [12. Compiled plans & the `ship` CLI](#12-compiled-plans--the-ship-cli)
-- [13. Authoring in Pkl](#13-authoring-in-pkl)
-- [14. Full DSL reference](#14-full-dsl-reference)
+- [12. Compiled plans](#12-compiled-plans)
+- [13. Also available: Go DSL & JSON](#13-also-available-go-dsl--json)
+- [14. Full Pkl schema reference](#14-full-pkl-schema-reference)
 
 ---
 
 ## 1. Hello, pipeline
 
-A pipeline is a Go program: build a `*Workflow`, hand it to an entry point.
+A pipeline is a `.pkl` file that `amends` the schema, names itself, and declares
+jobs. Job map keys are the job ids.
 
-```go
-package main
+```pkl
+amends "pkl/ship.pkl"
 
-import "github.com/chris/shiphappens/flow"
+name = "CI"
 
-func main() {
-    wf := flow.New("CI")
-
-    build := wf.Job("build").
-        Run("compile", "go build ./...")
-
-    wf.Job("test").Needs(build).
-        Run("unit", "go test ./...")
-
-    flow.Main(wf) // parses flags, compiles, runs; exits with status
+jobs {
+  ["build"] {
+    steps {
+      new { id = "compile"; run = "go build ./..." }
+    }
+  }
+  ["test"] {
+    needs { "build" }
+    steps {
+      new { id = "unit"; run = "go test ./..." }
+    }
+  }
 }
 ```
 
 ```bash
-go run .          # compile → validate → run
-go run . --graph  # just print the DAG
+ship run pipeline.pkl      # compile → validate → run
+ship validate pipeline.pkl # compile + validate only
+ship run pipeline.pkl --graph
 ```
 
-Entry points:
-
-| Function | Behavior |
-|---|---|
-| `flow.Main(wf)` | Streams logs. |
-| `flow.RunWithTUI(wf)` | Defaults the live TUI on (respects `--no-tui`). |
-| `flow.RunWithTUIResume(wf)` | Defaults TUI **and** `--resume` on. |
+`ship run` evaluates the Pkl with the `pkl` CLI (required on PATH;
+`brew install pkl`), validates the DAG, and executes it.
 
 ---
 
-## 2. Running a pipeline (CLI flags)
+## 2. Running a pipeline (the `ship` CLI)
 
-Every entry point accepts:
+```bash
+ship run <pipeline.pkl|plan.json> [flags]   # run
+ship validate <pipeline.pkl|plan.json>      # compile + validate only
+ship <pipeline.pkl> [flags]                 # shorthand for `ship run`
+```
+
+Flags:
 
 | Flag | Description |
 |---|---|
@@ -82,7 +93,7 @@ Every entry point accepts:
 | `--mount <spec>` | Extra container volume (repeatable), e.g. `vol:/root/.cache`. |
 | `--var <K=V>` | Set/override a workflow variable (repeatable). |
 | `--no-preheat` | Skip preheating. |
-| `--tui` / `--no-tui` | Force the dashboard on / off. |
+| `--tui` / `--no-tui` | Force the live dashboard on / off. |
 
 Exit codes: `0` success, `1` any failure (compile error, unknown job, or job
 failure).
@@ -91,23 +102,27 @@ failure).
 
 ## 3. Jobs & the DAG
 
-Jobs are DAG nodes; `Needs` declares edges. Jobs with satisfied dependencies run
+Jobs are DAG nodes; `needs` declares edges. Jobs with satisfied dependencies run
 in parallel (bounded by CPU count).
 
-```go
-checkout := wf.Job("checkout").Run("clone", "git rev-parse HEAD")
+```pkl
+jobs {
+  ["checkout"] { steps { new { id = "clone"; run = "git rev-parse HEAD" } } }
 
-lint := wf.Job("lint").Needs(checkout).Run("vet", "go vet ./...")
-test := wf.Job("test").Needs(checkout).Run("unit", "go test ./...")
+  ["lint"] { needs { "checkout" }; steps { new { id = "vet"; run = "go vet ./..." } } }
+  ["test"] { needs { "checkout" }; steps { new { id = "unit"; run = "go test ./..." } } }
 
-wf.Job("build").Needs(lint, test).Run("compile", "go build ./...")
+  ["build"] {
+    needs { "lint"; "test" }
+    steps { new { id = "compile"; run = "go build ./..." } }
+  }
+}
 ```
 
 `checkout` runs first; `lint` and `test` run **concurrently**; `build` waits for
-both. `NeedsID("some-id")` declares a dependency by raw id (useful with matrix
-expansions).
+both.
 
-The compiler statically rejects duplicate ids, missing/​self dependencies, and
+The compiler statically rejects duplicate ids, missing/self dependencies, and
 **dependency cycles** before anything runs, with `file:line` diagnostics.
 
 ---
@@ -115,42 +130,60 @@ The compiler statically rejects duplicate ids, missing/​self dependencies, and
 ## 4. Steps
 
 A job runs its steps sequentially; the first failure stops the job (unless
-continue-on-error). Steps are `Run(name, command)`, executed via a shell.
+continue-on-error). A step is `new { id = ...; run = ... }` plus optional fields:
 
-Per-step options attach to the **most recently added** step (fluent chaining):
-
-```go
-wf.Job("build").
-    Run("gen", "go generate ./...").
-        StepEnv("MODE", "release").      // step-level env (overrides job env)
-        WorkingDir("cmd/app").           // dir relative to the workdir
-        Shell("bash").                   // sh (default) | bash | python | node | any
-    Run("compile", "go build ./...").
-        StepTimeout(120).                // per-step timeout (seconds)
-        Retry(2, 5).                     // 2 retries, 5s backoff
-    Run("smoke", "./app --version").
-        StepContinueOnError()            // failure doesn't fail the job
+```pkl
+jobs {
+  ["build"] {
+    steps {
+      new {
+        id = "gen"
+        run = "go generate ./..."
+        env { ["MODE"] = "release" }   // step-level env (overrides job env)
+        workingDir = "cmd/app"         // dir relative to the workdir
+        shell = "bash"                 // sh (default) | bash | python | node | any
+      }
+      new {
+        id = "compile"
+        run = "go build ./..."
+        timeoutSec = 120               // per-step timeout
+        retries = 2                    // 2 additional attempts on failure
+        retryBackoffSec = 5            // 5s between attempts
+      }
+      new {
+        id = "smoke"
+        run = "./app --version"
+        continueOnError = true         // failure doesn't fail the job
+      }
+    }
+  }
+}
 ```
 
 ---
 
 ## 5. Containers & execution backends
 
-By default steps run **natively** (`sh -c` on the host). Add `Image(...)` to run
-a job in a container; the working tree is bind-mounted at `/ship/work`.
+By default steps run **natively** (`sh -c` on the host). Set `image` to run a job
+in a container; the working tree is bind-mounted at `/ship/work`.
 
-```go
-wf.Job("lint").Image("golang:1.22-alpine").
-    Run("vet", "go vet ./...")
+```pkl
+jobs {
+  ["lint"] {
+    image = "golang:1.22-alpine"
+    steps { new { id = "vet"; run = "go vet ./..." } }
+    network = false   // run with --network none (isolated, default-secure)
+  }
+}
 ```
 
-- **Engines:** `--engine docker` (default), `podman`, or `apple` (Apple's
-  `container` CLI).
-- **Networking:** `.Offline()` runs the job with `--network none` (default-secure
-  for offline compiles); `.Network(true)` forces it on.
-- **Volumes:** `--mount vol:/path` (e.g. a shared toolchain cache).
-- **Overlay isolation:** `.Overlay()` runs a container job in an overlayfs upper
-  layer (Linux; falls back gracefully where unsupported).
+- **Engines:** `ship run … --engine docker` (default), `podman`, or `apple`
+  (Apple's `container` CLI).
+- **Networking:** `network = false` → `--network none`; `network = true` forces
+  it on; omit for the engine default.
+- **Volumes:** `ship run … --mount vol:/path` (e.g. a shared toolchain cache).
+- **Overlay isolation:** `overlay = true` runs a container job in an overlayfs
+  upper layer (Linux; falls back gracefully where unsupported).
 
 ---
 
@@ -158,20 +191,30 @@ wf.Job("lint").Image("golang:1.22-alpine").
 
 **Variables** are plain config; **secrets** are host-sourced and protected.
 
-```go
-wf := flow.New("deploy").
-    Var("REGION", "eu-west").                     // workflow var (all jobs)
-    Vars(map[string]string{"APP": "widget-svc"})
+```pkl
+name = "deploy"
 
-wf.Job("release").
-    Env("CGO_ENABLED", "0").                       // job env (overrides vars)
-    Secret("NPM_TOKEN").                           // from $NPM_TOKEN
-    SecretFrom("AWS_KEY", "AWS_ACCESS_KEY_ID").    // from a different host var
-    Run("publish", "npm publish")                  // $REGION $APP $NPM_TOKEN $AWS_KEY set
+vars {
+  ["REGION"] = "eu-west"
+  ["APP"] = "widget-svc"
+}
+
+jobs {
+  ["release"] {
+    env { ["CGO_ENABLED"] = "0" }          // job env (overrides vars)
+    secrets {
+      new { name = "NPM_TOKEN" }           // resolved from $NPM_TOKEN
+      new { name = "AWS_KEY"; fromEnv = "AWS_ACCESS_KEY_ID" }  // from a different host var
+    }
+    steps {
+      new { id = "publish"; run = "npm publish" }  // $REGION $APP $NPM_TOKEN $AWS_KEY set
+    }
+  }
+}
 ```
 
 Precedence: **workflow vars < job env < secrets**. Override a var at run time
-with `--var REGION=us-east`.
+with `ship run … --var REGION=us-east`.
 
 Secrets are **safe by construction**:
 - Resolved at run time from the host environment — never in source or the plan.
@@ -189,25 +232,33 @@ Two complementary, content-addressed mechanisms backed by `~/.ship/cache`.
 
 **Step cache** (opt-in per step): skips a step whose inputs are unchanged.
 
-```go
-wf.Job("build").
-    Run("compile", "go build -o bin/app ./...").
-    Cache(flow.Inputs("**/*.go", "go.mod"), flow.Outputs("bin/**"))
+```pkl
+["build"] {
+  steps {
+    new {
+      id = "compile"
+      run = "go build -o bin/app ./..."
+      cache { inputs { "**/*.go"; "go.mod" }; outputs { "bin/**" } }
+    }
+  }
+}
 ```
 
 **Job resume** (`--resume`): skips an entire job whose fingerprint matches a
-prior success and restores its declared outputs — turning a failed-then-fixed
+prior success and restores its declared `outputs` — turning a failed-then-fixed
 pipeline into an incremental one.
 
-```go
-wf.Job("build").
-    Run("compile", "go build -o bin/app ./...").
-    Cache(flow.Inputs("**/*.go")).
-    Outputs("bin/**")   // the job's result, restored on resume
+```pkl
+["build"] {
+  steps {
+    new { id = "compile"; run = "go build -o bin/app ./..."; cache { inputs { "**/*.go" } } }
+  }
+  outputs { "bin/**" }   // the job's result, restored on resume
+}
 ```
 
 ```bash
-go run . --resume   # unchanged jobs are restored instantly ("N resumed")
+ship run pipeline.pkl --resume   # unchanged jobs restored instantly ("N resumed")
 ```
 
 **Change-scoped runs** (`--changed`): `git diff` → only affected jobs + their
@@ -217,48 +268,72 @@ dependents.
 
 ## 8. Matrix (fan-out)
 
-Expand a job over the cartesian product of dimensions — one job per combination,
-values exposed as uppercased env vars:
+Pkl generates matrix jobs natively with `for` generators — one job per
+combination, values exposed as env vars:
 
-```go
-test := wf.Job("test").
-    Matrix(map[string][]string{
-        "os": {"linux", "mac"},
-        "go": {"1.21", "1.22"},
-    }).
-    Run("run", `echo "testing on $OS with Go $GO" && go test ./...`)
+```pkl
+local oses = new Listing { "linux"; "mac" }
+local gos  = new Listing { "1.21"; "1.22" }
 
-wf.Job("report").Needs(test).   // depends on ALL 4 expansions
-    Run("done", "echo all matrix jobs passed")
+jobs {
+  for (os in oses) {
+    for (go in gos) {
+      ["test-\(os)-\(go)"] = new Job {
+        env { ["OS"] = os; ["GO"] = go }
+        steps { new { id = "run"; run = "echo testing $OS with Go $GO && go test ./..." } }
+      }
+    }
+  }
+  ["report"] {
+    // depend on all expansions
+    needs { for (os in oses) { for (go in gos) { "test-\(os)-\(go)" } } }
+    steps { new { id = "done"; run = "echo all matrix jobs passed" } }
+  }
+}
 ```
 
-Produces `test/1.21-linux`, `test/1.21-mac`, `test/1.22-linux`,
-`test/1.22-mac` — run in parallel, each with `$OS`/`$GO` set.
+This produces `test-linux-1.21`, `test-linux-1.22`, `test-mac-1.21`,
+`test-mac-1.22` — run in parallel, each with `$OS`/`$GO` set.
+
+> The Go DSL offers a dedicated `Matrix(dims)` helper that does the same
+> expansion automatically ([§13](#13-also-available-go-dsl--json)).
 
 ---
 
 ## 9. Timeouts, retries & error handling
 
-```go
-wf.Job("integration").
-    Timeout(600).                 // whole-job timeout (seconds)
-    Run("suite", "pytest -q").
-        StepTimeout(120).         // per-step timeout
-        Retry(3, 5).              // 3 retries, 5s backoff
-        StepContinueOnError()     // step failure doesn't fail the job
+```pkl
+jobs {
+  ["integration"] {
+    timeoutSec = 600                  // whole-job timeout
+    steps {
+      new {
+        id = "suite"
+        run = "pytest -q"
+        timeoutSec = 120              // per-step timeout
+        retries = 3                   // 3 retries…
+        retryBackoffSec = 5           // …5s apart
+        continueOnError = true        // step failure doesn't fail the job
+      }
+    }
+  }
 
-wf.Job("optional-scan").
-    ContinueOnError().            // job failure doesn't fail the run…
-    Run("scan", "trivy fs .")
+  ["optional-scan"] {
+    continueOnError = true            // job failure doesn't fail the run…
+    steps { new { id = "scan"; run = "trivy fs ." } }
+  }
 
-wf.Job("deploy").Needs(anything). // …and dependents still run
-    Run("ship", "./deploy.sh")
+  ["deploy"] {
+    needs { "integration" }           // …and dependents still run
+    steps { new { id = "ship"; run = "./deploy.sh" } }
+  }
+}
 ```
 
 - **Timeouts** cancel the process on expiry.
 - **Retries** re-attempt on non-zero exit (stop early on cancel).
-- **Step `continue-on-error`** → job proceeds to the next step.
-- **Job `ContinueOnError`** → the run isn't failed and dependents still run (the
+- **Step `continueOnError`** → job proceeds to the next step.
+- **Job `continueOnError`** → the run isn't failed and dependents still run (the
   fail-fast opt-out).
 
 Otherwise the scheduler is **fail-fast**: a failure cancels in-flight work and
@@ -271,22 +346,26 @@ marks dependents skipped.
 **Preheat** warms images/caches concurrently before the DAG (advisory — never
 fails the build):
 
-```go
-wf.Preheat(flow.Preheat{
-    Image: "golang:1.22-alpine",
-    Warm:  "go mod download",
-    Mounts: []string{"gomod:/go/pkg/mod"},
-})
+```pkl
+preheat {
+  new {
+    image = "golang:1.22-alpine"
+    warm = "go mod download"
+    mounts { "gomod:/go/pkg/mod" }
+  }
+}
 ```
 
-**`CleanAfter`** prunes large build intermediates after a job succeeds, keeping
+**`cleanAfter`** prunes large build intermediates after a job succeeds, keeping
 only the small artifacts:
 
-```go
-wf.Job("build").Image("golang:1.22-alpine").
-    Run("compile", "go build -o bin/app ./...").
-    Outputs("bin/**").
-    CleanAfter(".gocache", ".gomodcache")   // pruned after success
+```pkl
+["build"] {
+  image = "golang:1.22-alpine"
+  steps { new { id = "compile"; run = "go build -o bin/app ./..." } }
+  outputs { "bin/**" }
+  cleanAfter { ".gocache"; ".gomodcache" }   // pruned after success
+}
 ```
 
 Combine with one shared toolchain volume (`--mount`) reused across all jobs and
@@ -298,116 +377,137 @@ engines to download toolchains once.
 
 - **Streaming logs:** per-job prefixed, colored, thread-safe, with per-step
   `✓/✗` status and timing. Secret values are masked.
-- **Live TUI** (`--tui` or `RunWithTUI`): an in-place dashboard —
+- **Live TUI** (`--tui`): an in-place dashboard —
   `▶` running · `✓` done · `✗` failed · `◌` skipped · `·` pending — with current
   step, per-job timers, and a running summary.
 - **Summary line:** `✓/✗ <name> in <dur> (N ran, N cached, N resumed)`.
 
 Use `--no-tui` to stream raw tool output when debugging a failing job.
 
----
-
-## 12. Compiled plans & the `ship` CLI
-
-Compile a pipeline to a validated JSON plan ("Terraform plan, but for CI"):
-
-```bash
-go run . --compile plan.json
 ```
-
-Run any plan (or a Pkl pipeline) with the standalone CLI:
-
-```bash
-ship run plan.json                 # run a compiled JSON plan
-ship run pipeline.pkl              # evaluate Pkl → run
-ship validate pipeline.pkl         # compile + validate only
-ship pipeline.pkl --job test --tui # shorthand for `ship run`, with flags
+⚓ CI   elapsed 3s
+  ✓ checkout   done 120ms
+  ✓ lint       done 1.5s
+  ▶ test       running · unit 2s
+  · build      pending
+  ▸ 2 done · 1 running · 1 pending
 ```
-
-The JSON plan is the stable interchange format that all three front-ends emit.
 
 ---
 
-## 13. Authoring in Pkl
+## 12. Compiled plans
 
-Prefer a declarative config? Author in [Pkl](https://pkl-lang.org) (typed,
-sandboxed — **not** Python's `pickle`) by amending the schema at
-[`pkl/ship.pkl`](../pkl/ship.pkl):
+Evaluate + validate a pipeline to a stable JSON plan ("Terraform plan, but for
+CI"):
 
-```pkl
-amends "ship.pkl"
+```bash
+ship run pipeline.pkl --compile plan.json   # write the plan, don't run
+ship run plan.json                          # run a compiled plan directly
+```
 
-name = "CI"
-vars { ["REGION"] = "eu-west" }
+The JSON plan is the interchange format all authoring front-ends emit and the
+engine consumes. It is deterministic and inspectable, and **never** contains
+secret values.
 
-jobs {
-  ["build"] {
-    steps { new { id = "compile"; run = "go build ./..." } }
-    outputs { "bin/**" }
-  }
-  ["test"] {
-    needs { "build" }
-    steps { new { id = "unit"; run = "go test ./..."; retries = 2 } }
-  }
+---
+
+## 13. Also available: Go DSL & JSON
+
+Pipelines may also be authored as **Go programs** (a fluent DSL) or as raw
+**JSON plans** — both lower to the same engine. The Go DSL adds a dedicated
+`Matrix(dims)` helper and is handy when you want the pipeline to be a compiled
+binary.
+
+```go
+package main
+
+import "github.com/chris/shiphappens/flow"
+
+func main() {
+    wf := flow.New("CI").Var("REGION", "eu-west")
+
+    build := wf.Job("build").
+        Run("compile", "go build -o bin/app ./...").
+        Cache(flow.Inputs("**/*.go"), flow.Outputs("bin/**")).
+        Outputs("bin/**")
+
+    wf.Job("test").Needs(build).
+        Run("unit", "go test ./...").
+        Retry(2)
+
+    wf.Job("matrix").
+        Matrix(map[string][]string{"os": {"linux", "mac"}, "go": {"1.21", "1.22"}}).
+        Run("t", "echo $OS $GO")
+
+    flow.RunWithTUI(wf)   // or flow.Main(wf) / flow.RunWithTUIResume(wf)
 }
 ```
 
 ```bash
-ship run pipeline.pkl   # requires the `pkl` CLI on PATH
+go run .            # same flags as `ship run`
+go run . --compile plan.json   # then: ship run plan.json
 ```
 
-Pkl supports every feature the Go DSL does (env, secrets, cache, matrix via
-Pkl's own language, timeouts, retries, continue-on-error, …) and evaluates to
-the identical plan.
+The Go DSL surface mirrors the Pkl schema one-to-one; see the method list in the
+package docs. Direction is Pkl-first ([ADR-0001](adr/0001-authoring-frontends.md)).
 
 ---
 
-## 14. Full DSL reference
+## 14. Full Pkl schema reference
 
-### Workflow (`flow.New(name) *Workflow`)
+Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
 
-| Method | Description |
+### Module (top level)
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `String` | Workflow name (required). |
+| `vars` | `Mapping<String,String>?` | Workflow variables, merged into every job's env. |
+| `preheat` | `Listing<Preheat>?` | Warm-up work run concurrently before the DAG. |
+| `jobs` | `Mapping<String,Job>` | Jobs by id (required). |
+
+### `Job`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `runsOn` | `String` | `"native"` | Advisory execution label. |
+| `image` | `String?` | — | Container image; when set, runs in a container. |
+| `needs` | `Listing<String>?` | — | Dependency job ids. |
+| `env` | `Mapping<String,String>?` | — | Job-scoped env (overrides vars). |
+| `secrets` | `Listing<Secret>?` | — | Host-sourced, masked secrets. |
+| `steps` | `Listing<Step>` | — | Steps (required). |
+| `cleanAfter` | `Listing<String>?` | — | Path globs pruned after success. |
+| `network` | `Boolean?` | — | null=default, true=on, false=isolated. |
+| `outputs` | `Listing<String>?` | — | Result globs persisted for `--resume`. |
+| `overlay` | `Boolean` | `false` | overlayfs upper-layer isolation. |
+| `timeoutSec` | `Int` | `0` | Whole-job timeout (0 = none). |
+| `continueOnError` | `Boolean` | `false` | Non-fatal job (fail-fast opt-out). |
+
+### `Step`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `id` | `String` | — | Step id/name (required). |
+| `run` | `String` | — | Shell command (required). |
+| `cache` | `Cache?` | — | Content-addressed step cache. |
+| `env` | `Mapping<String,String>?` | — | Step env (overrides job env). |
+| `workingDir` | `String?` | — | Dir relative to the workdir. |
+| `shell` | `String?` | `sh` | `sh`\|`bash`\|`python`\|`node`\|any. |
+| `timeoutSec` | `Int` | `0` | Per-step timeout. |
+| `retries` | `Int` | `0` | Additional attempts on failure. |
+| `retryBackoffSec` | `Int` | `0` | Delay between attempts. |
+| `continueOnError` | `Boolean` | `false` | Non-fatal step. |
+
+### `Cache`, `Secret`, `Preheat`
+
+| Class | Fields |
 |---|---|
-| `Job(id) *Job` | Add a job. |
-| `Var(k, v)` / `Vars(map)` | Workflow variables (merged into every job). |
-| `Preheat(Preheat)` | Register warm-up work run before the DAG. |
-
-### Job (chainable, all return `*Job`)
-
-| Method | Description |
-|---|---|
-| `Run(name, cmd)` | Append a shell step. |
-| `Needs(...*Job)` / `NeedsID(...string)` | Declare dependencies. |
-| `Image(ref)` | Run in a container image. |
-| `RunsOn(label)` | Advisory execution label. |
-| `Env(k, v)` | Job-scoped env var. |
-| `Secret(name)` / `SecretFrom(name, fromEnv)` | Host-sourced, masked secret. |
-| `Network(bool)` / `Offline()` | Container networking control. |
-| `Overlay()` | overlayfs upper-layer isolation. |
-| `Outputs(globs...)` | Job result artifacts (resume). |
-| `CleanAfter(globs...)` | Prune paths after success. |
-| `Matrix(map[string][]string)` | Fan-out over combinations. |
-| `Timeout(seconds)` | Whole-job timeout. |
-| `ContinueOnError()` | Non-fatal job (fail-fast opt-out). |
-
-### Step-configuring (attach to the last `Run`; all return `*Job`)
-
-| Method | Description |
-|---|---|
-| `Cache(Inputs(...), Outputs(...))` | Content-addressed step cache. |
-| `StepEnv(k, v)` | Step env (overrides job env). |
-| `WorkingDir(dir)` | Step working directory. |
-| `Shell(shell)` | `sh`\|`bash`\|`python`\|`node`\|any. |
-| `StepTimeout(seconds)` | Per-step timeout. |
-| `Retry(n, backoffSec...)` | Retries with optional backoff. |
-| `StepContinueOnError()` | Non-fatal step. |
-
-### Entry points
-
-`flow.Main(wf)` · `flow.RunWithTUI(wf)` · `flow.RunWithTUIResume(wf)` ·
-`flow.RunFile(path, argv)` · `flow.MainFile(path, argv)`
+| `Cache` | `inputs: Listing<String>?`, `outputs: Listing<String>?` |
+| `Secret` | `name: String`, `fromEnv: String?` |
+| `Preheat` | `image: String`, `warm: String?`, `mounts: Listing<String>?` |
 
 ---
 
-See runnable examples in [`demos/`](../demos/) — including containerized Python,
-Go, and Vue pipelines, a secrets demo, a matrix/robustness demo, and a Pkl demo.
+See runnable examples in [`demos/`](../demos/) — including a Pkl pipeline
+(`demos/pkl-app`), containerized Python/Go/Vue pipelines, a secrets demo, and a
+matrix/robustness demo.
