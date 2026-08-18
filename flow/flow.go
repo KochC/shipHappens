@@ -33,6 +33,8 @@ type Job struct {
 	env        map[string]string
 	cleanAfter []string
 	network    *bool
+	outputs    []string
+	overlay    bool
 	line       string // "file.go:NN" of the .Job(...) call site
 }
 
@@ -107,6 +109,18 @@ func (j *Job) Network(enabled bool) *Job { j.network = &enabled; return j }
 // choice for steps that only compile local sources. Steps that must fetch
 // (dependencies, toolchains, registry) opt in via Network(true).
 func (j *Job) Offline() *Job { b := false; j.network = &b; return j }
+
+// Outputs declares file globs that constitute this job's result. They are
+// persisted for resume: when a rerun's fingerprint matches, the job is skipped
+// and these outputs are restored instead of recomputed.
+func (j *Job) Outputs(globs ...string) *Job {
+	j.outputs = append(j.outputs, globs...)
+	return j
+}
+
+// Overlay runs a container job with an overlayfs upperdir so its filesystem
+// writes are captured as an isolated diff layer (Linux/container jobs only).
+func (j *Job) Overlay() *Job { j.overlay = true; return j }
 
 // CleanAfter deletes the given path globs (relative to the workdir) after the
 // job finishes — used to prune large build intermediates (e.g. ".pio/build/**")

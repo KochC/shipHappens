@@ -30,6 +30,9 @@ type Options struct {
 	// Observer, if set, receives job/step lifecycle events for UIs (e.g. a TUI).
 	// It is called from multiple goroutines; implementations must be safe.
 	Observer func(Event)
+	// Resume skips jobs whose fingerprint matches a prior successful run,
+	// restoring their declared Outputs instead of re-executing (incremental).
+	Resume bool
 }
 
 // EventKind enumerates lifecycle events.
@@ -48,7 +51,7 @@ type Event struct {
 	Kind     EventKind
 	Job      string
 	Step     string
-	OK        bool
+	OK       bool
 	Cached   bool
 	Duration time.Duration
 }
@@ -58,6 +61,7 @@ type Result struct {
 	Failed   bool
 	Ran      int
 	Cached   int
+	Resumed  int
 	Duration time.Duration
 }
 
@@ -73,9 +77,12 @@ type scheduler struct {
 	done     map[string]bool
 	failed   map[string]bool
 	inFlight map[string]bool
+	fps      map[string]string // jobID -> computed fingerprint
+	skipped  map[string]bool   // jobID -> resumed (skipped) this run
 	anyFail  bool
 	ranCnt   int
 	cacheCnt int
+	resumeN  int
 
 	sem chan struct{}
 	wg  sync.WaitGroup
@@ -95,6 +102,8 @@ func Run(ctx context.Context, plan *compiler.RunPlan, opts Options) Result {
 		done:     map[string]bool{},
 		failed:   map[string]bool{},
 		inFlight: map[string]bool{},
+		fps:      map[string]string{},
+		skipped:  map[string]bool{},
 		sem:      make(chan struct{}, opts.MaxPar),
 	}
 	if !opts.NoCache {
@@ -110,7 +119,7 @@ func Run(ctx context.Context, plan *compiler.RunPlan, opts Options) Result {
 	s.launch(ctx)
 	s.wg.Wait()
 
-	return Result{Failed: s.anyFail, Ran: s.ranCnt, Cached: s.cacheCnt, Duration: time.Since(start)}
+	return Result{Failed: s.anyFail, Ran: s.ranCnt, Cached: s.cacheCnt, Resumed: s.resumeN, Duration: time.Since(start)}
 }
 
 func (s *scheduler) included(id string) bool {
@@ -171,15 +180,75 @@ func (s *scheduler) depsState(id string) (ready, blocked bool) {
 // the job declares an image, otherwise the NativeRunner.
 func (s *scheduler) runnerFor(job *compiler.JobPlan) runner.Runner {
 	if job.Image != "" {
+		if job.Overlay {
+			upper := filepath.Join(s.opts.Workdir, ".ship-overlay", job.ID)
+			return runner.OverlayRunner{
+				Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts,
+				Network: job.Network, UpperHost: upper,
+			}
+		}
 		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts, Network: job.Network}
 	}
 	return runner.NativeRunner{}
+}
+
+// fingerprint computes a job's resume fingerprint. Deps are done, so their
+// fingerprints are available in s.fps.
+func (s *scheduler) fingerprint(job *compiler.JobPlan) string {
+	var cmds, inputs []string
+	for _, st := range job.Steps {
+		cmds = append(cmds, st.Run)
+		if st.Cache != nil {
+			inputs = append(inputs, st.Cache.Inputs...)
+		}
+	}
+	s.mu.Lock()
+	var ups []string
+	for _, n := range job.Needs {
+		if fp := s.fps[n]; fp != "" {
+			ups = append(ups, fp)
+		}
+	}
+	s.mu.Unlock()
+
+	fp, err := cache.JobFingerprint(cache.JobFingerprintInput{
+		JobID:        job.ID,
+		Image:        job.Image,
+		StepCommands: cmds,
+		Env:          job.Env,
+		Workdir:      s.opts.Workdir,
+		InputGlobs:   inputs,
+		UpstreamFPs:  ups,
+	})
+	if err != nil {
+		return ""
+	}
+	return fp
 }
 
 func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	defer s.wg.Done()
 	s.sem <- struct{}{}
 	defer func() { <-s.sem }()
+
+	// Resume: if this job's fingerprint matches a prior success, skip it and
+	// restore its outputs instead of re-executing.
+	fp := ""
+	if s.opts.Resume && s.store != nil {
+		fp = s.fingerprint(job)
+		if fp != "" && s.store.JobDone(fp) {
+			_ = s.store.RestoreJob(fp, s.opts.Workdir)
+			s.mu.Lock()
+			s.fps[job.ID] = fp
+			s.done[job.ID] = true
+			s.skipped[job.ID] = true
+			s.resumeN++
+			s.mu.Unlock()
+			s.emit(Event{Kind: JobFinished, Job: job.ID, OK: true, Cached: true})
+			s.launch(ctx)
+			return
+		}
+	}
 
 	run := s.runnerFor(job)
 	out := logs.Prefixed(job.ID)
@@ -200,6 +269,9 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 
 	s.mu.Lock()
 	s.done[job.ID] = true
+	if fp != "" {
+		s.fps[job.ID] = fp
+	}
 	if jobFailed {
 		s.failed[job.ID] = true
 		s.anyFail = true
@@ -210,6 +282,11 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	// Prune build intermediates to minimize disk usage (only on success, so a
 	// failed build can still be inspected).
 	if !jobFailed {
+		// Record success for resume BEFORE pruning, so declared Outputs are
+		// captured while they still exist on disk.
+		if s.opts.Resume && s.store != nil && fp != "" {
+			_ = s.store.MarkJobDone(fp, s.opts.Workdir, job.Outputs)
+		}
 		s.cleanAfter(job)
 	}
 

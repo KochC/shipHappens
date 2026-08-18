@@ -20,6 +20,12 @@ type JobPlan struct {
 	// Network controls container networking for image jobs. nil = engine
 	// default (on). false = isolated (no network). true = network on.
 	Network *bool
+	// Outputs are file globs persisted for job-level resume (restored when a
+	// job is skipped because its fingerprint matched a prior successful run).
+	Outputs []string
+	// Overlay, when true (container jobs only), runs the job with an overlayfs
+	// upperdir so its writes are captured as an isolated diff layer.
+	Overlay bool
 }
 
 // StepPlan is one executable unit within a job.

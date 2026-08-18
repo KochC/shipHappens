@@ -15,6 +15,8 @@ func (w *Workflow) ToPlan() *compiler.RunPlan {
 			Env:        j.env,
 			CleanAfter: append([]string(nil), j.cleanAfter...),
 			Network:    j.network,
+			Outputs:    append([]string(nil), j.outputs...),
+			Overlay:    j.overlay,
 		}
 		for _, s := range j.steps {
 			sp := compiler.StepPlan{ID: s.name, Run: s.run}

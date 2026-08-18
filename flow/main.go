@@ -49,6 +49,7 @@ func Main(w *Workflow) {
 		engine      string
 		noPreheat   bool
 		useTUI      bool
+		resume      bool
 	)
 	changedVal := &optString{}
 	mounts := &sliceFlag{}
@@ -60,6 +61,7 @@ func Main(w *Workflow) {
 	fs.StringVar(&engine, "engine", "docker", "container engine for image jobs (docker|podman|apple)")
 	fs.BoolVar(&noPreheat, "no-preheat", false, "skip image/cache preheating before the run")
 	fs.BoolVar(&useTUI, "tui", false, "render a live status dashboard instead of streaming logs")
+	fs.BoolVar(&resume, "resume", false, "skip jobs whose fingerprint matches a prior successful run (incremental)")
 	fs.Var(mounts, "mount", "extra container volume spec for image jobs (repeatable), e.g. vol:/root/.platformio")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(os.Args[1:])
@@ -159,6 +161,7 @@ func Main(w *Workflow) {
 		Engine:   engine,
 		Mounts:   []string(*mounts),
 		Observer: observer,
+		Resume:   resume,
 	})
 
 	if ui != nil {
@@ -168,10 +171,10 @@ func Main(w *Workflow) {
 
 	fmt.Println()
 	if res.Failed {
-		logs.Failure("✗ %s failed in %s  (%d ran, %d cached)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached)
+		logs.Failure("✗ %s failed in %s  (%d ran, %d cached, %d resumed)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
 		os.Exit(1)
 	}
-	logs.Success("✓ %s passed in %s  (%d ran, %d cached)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached)
+	logs.Success("✓ %s passed in %s  (%d ran, %d cached, %d resumed)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
 }
 
 // runPreheats warms images + caches concurrently. Advisory: logs failures but
