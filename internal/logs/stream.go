@@ -22,6 +22,13 @@ const (
 
 var noColor = os.Getenv("NO_COLOR") != ""
 
+// quiet suppresses streaming step/prefixed/status output (used by the TUI which
+// paints its own dashboard). Summary/info calls still print.
+var quiet bool
+
+// SetQuiet toggles suppression of per-line streaming output.
+func SetQuiet(q bool) { quiet = q }
+
 func c(color, s string) string {
 	if noColor {
 		return s
@@ -30,8 +37,12 @@ func c(color, s string) string {
 }
 
 // Prefixed returns a writer that prepends "[job] " to every line, synchronized
-// across goroutines so parallel job output doesn't interleave mid-line.
+// across goroutines so parallel job output doesn't interleave mid-line. In quiet
+// mode it discards output (the TUI shows status instead).
 func Prefixed(job string) io.Writer {
+	if quiet {
+		return io.Discard
+	}
 	pr, pw := io.Pipe()
 	go func() {
 		sc := bufio.NewScanner(pr)
@@ -54,6 +65,9 @@ func Info(format string, a ...any) {
 
 // Step prints a per-step status line.
 func Step(job, name, status string, ok, cached bool) {
+	if quiet {
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	mark := c(green, "✓")

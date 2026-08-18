@@ -27,6 +27,30 @@ type Options struct {
 	MaxPar  int
 	Engine  string   // container engine: "docker" (default) or "podman"
 	Mounts  []string // extra container volume specs applied to all image jobs
+	// Observer, if set, receives job/step lifecycle events for UIs (e.g. a TUI).
+	// It is called from multiple goroutines; implementations must be safe.
+	Observer func(Event)
+}
+
+// EventKind enumerates lifecycle events.
+type EventKind int
+
+const (
+	JobStarted EventKind = iota
+	JobFinished
+	JobSkipped
+	StepStarted
+	StepFinished
+)
+
+// Event is a scheduler progress notification.
+type Event struct {
+	Kind     EventKind
+	Job      string
+	Step     string
+	OK        bool
+	Cached   bool
+	Duration time.Duration
 }
 
 // Result summarizes a run.
@@ -93,6 +117,13 @@ func (s *scheduler) included(id string) bool {
 	return s.opts.Only == nil || s.opts.Only[id]
 }
 
+// emit sends an event to the observer if one is configured.
+func (s *scheduler) emit(e Event) {
+	if s.opts.Observer != nil {
+		s.opts.Observer(e)
+	}
+}
+
 // launch scans for jobs whose dependencies are satisfied and starts them.
 func (s *scheduler) launch(ctx context.Context) {
 	s.mu.Lock()
@@ -108,6 +139,7 @@ func (s *scheduler) launch(ctx context.Context) {
 			s.failed[id] = true
 			s.anyFail = true
 			logs.Failure("✗ [%s] skipped (dependency failed)", id)
+			s.emit(Event{Kind: JobSkipped, Job: id})
 			continue
 		}
 		if !ready {
@@ -152,6 +184,8 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	run := s.runnerFor(job)
 	out := logs.Prefixed(job.ID)
 	jobFailed := false
+	jobStart := time.Now()
+	s.emit(Event{Kind: JobStarted, Job: job.ID})
 
 	for _, step := range job.Steps {
 		cached, ok := s.execStep(ctx, run, job, step, out)
@@ -179,6 +213,7 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 		s.cleanAfter(job)
 	}
 
+	s.emit(Event{Kind: JobFinished, Job: job.ID, OK: !jobFailed, Duration: time.Since(jobStart)})
 	s.launch(ctx)
 }
 
@@ -194,6 +229,7 @@ func (s *scheduler) cleanAfter(job *compiler.JobPlan) {
 
 // execStep runs one step (consulting cache). Returns (cachedHit, ok).
 func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compiler.JobPlan, step compiler.StepPlan, out io.Writer) (cached, ok bool) {
+	s.emit(Event{Kind: StepStarted, Job: job.ID, Step: step.ID})
 	if s.store != nil && step.Cache != nil {
 		key, err := cache.HashInputs(step.Run, s.opts.Workdir, job.Env, step.Cache.Inputs)
 		if err == nil && s.store.Has(key) {
@@ -202,6 +238,7 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 			s.mu.Lock()
 			s.cacheCnt++
 			s.mu.Unlock()
+			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Cached: true})
 			return true, true
 		}
 		res := run.Run(ctx, step, s.opts.Workdir, job.Env, out)
@@ -210,12 +247,14 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 		s.mu.Unlock()
 		if res.Err != nil {
 			logs.Step(job.ID, step.ID, fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond)), false, false)
+			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false, Duration: res.Duration})
 			return false, false
 		}
 		if err == nil {
 			_ = s.store.Save(key, s.opts.Workdir, step.Cache.Outputs)
 		}
 		logs.Step(job.ID, step.ID, res.Duration.Round(time.Millisecond).String(), true, false)
+		s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Duration: res.Duration})
 		return false, true
 	}
 
@@ -225,8 +264,10 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 	s.mu.Unlock()
 	if res.Err != nil {
 		logs.Step(job.ID, step.ID, fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond)), false, false)
+		s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false, Duration: res.Duration})
 		return false, false
 	}
 	logs.Step(job.ID, step.ID, res.Duration.Round(time.Millisecond).String(), true, false)
+	s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Duration: res.Duration})
 	return false, true
 }

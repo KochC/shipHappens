@@ -17,6 +17,7 @@ import (
 	"github.com/chris/shiphappens/internal/logs"
 	"github.com/chris/shiphappens/internal/runner"
 	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/chris/shiphappens/internal/tui"
 )
 
 // writePlan serializes the compiled plan to a JSON artifact ("Terraform plan,
@@ -47,6 +48,7 @@ func Main(w *Workflow) {
 		compileOnly string
 		engine      string
 		noPreheat   bool
+		useTUI      bool
 	)
 	changedVal := &optString{}
 	mounts := &sliceFlag{}
@@ -57,6 +59,7 @@ func Main(w *Workflow) {
 	fs.StringVar(&compileOnly, "compile", "", "write the compiled plan as JSON to the given path and exit")
 	fs.StringVar(&engine, "engine", "docker", "container engine for image jobs (docker|podman|apple)")
 	fs.BoolVar(&noPreheat, "no-preheat", false, "skip image/cache preheating before the run")
+	fs.BoolVar(&useTUI, "tui", false, "render a live status dashboard instead of streaming logs")
 	fs.Var(mounts, "mount", "extra container volume spec for image jobs (repeatable), e.g. vol:/root/.platformio")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(os.Args[1:])
@@ -132,13 +135,36 @@ func Main(w *Workflow) {
 		fmt.Println()
 	}
 
+	// Optional live TUI dashboard: suppress streaming logs and paint per-job
+	// status instead. Build the job order (respecting --job/--changed subset).
+	var ui *tui.Model
+	var observer func(scheduler.Event)
+	if useTUI {
+		var order []string
+		for _, id := range dag.TopoOrder() {
+			if only == nil || only[id] {
+				order = append(order, id)
+			}
+		}
+		ui = tui.New(plan.Name, order)
+		observer = ui.Observer()
+		logs.SetQuiet(true)
+		ui.Start()
+	}
+
 	res := scheduler.Run(ctx, plan, scheduler.Options{
-		Workdir: wd,
-		NoCache: noCache,
-		Only:    only,
-		Engine:  engine,
-		Mounts:  []string(*mounts),
+		Workdir:  wd,
+		NoCache:  noCache,
+		Only:     only,
+		Engine:   engine,
+		Mounts:   []string(*mounts),
+		Observer: observer,
 	})
+
+	if ui != nil {
+		ui.Stop()
+		logs.SetQuiet(false)
+	}
 
 	fmt.Println()
 	if res.Failed {
@@ -175,7 +201,8 @@ func runPreheats(ctx context.Context, specs []Preheat, engine, workdir string, m
 	wg.Wait()
 }
 
-func stepCount(p *compiler.RunPlan) int {	n := 0
+func stepCount(p *compiler.RunPlan) int {
+	n := 0
 	for _, j := range p.Jobs {
 		n += len(j.Steps)
 	}
@@ -214,8 +241,8 @@ type optString struct {
 }
 
 func (o *optString) String() string     { return o.val }
-func (o *optString) Set(s string) error  { o.set = true; o.val = s; return nil }
-func (o *optString) IsBoolFlag() bool     { return true }
+func (o *optString) Set(s string) error { o.set = true; o.val = s; return nil }
+func (o *optString) IsBoolFlag() bool   { return true }
 
 // sliceFlag collects repeatable string flags.
 type sliceFlag []string
