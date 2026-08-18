@@ -102,7 +102,8 @@ func prunedDir(name string) bool {
 
 // expandGlobs resolves globs relative to workdir into a sorted, de-duped list
 // of regular files. Supports ** via a simple walk when a glob contains it.
-func expandGlobs(workdir string, globs []string) ([]string, error) {	set := map[string]bool{}
+func expandGlobs(workdir string, globs []string) ([]string, error) {
+	set := map[string]bool{}
 	for _, g := range globs {
 		full := filepath.Join(workdir, g)
 		if containsDoubleStar(g) {

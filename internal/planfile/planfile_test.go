@@ -109,7 +109,6 @@ func TestLoadPklEvalError(t *testing.T) {
 	}
 }
 
-
 func TestDefaultPklEvalNotFound(t *testing.T) {
 	prevLP := lookPath
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }

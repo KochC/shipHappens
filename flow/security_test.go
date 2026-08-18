@@ -43,10 +43,10 @@ func TestLowerService(t *testing.T) {
 	wf := New("W")
 	wf.Job("test").Image("golang:1.22").
 		Service(Service{
-			Name:  "db",
-			Image: "postgres:16",
-			Env:   map[string]string{"POSTGRES_PASSWORD": "x"},
-			Ports: []string{"5432:5432"},
+			Name:   "db",
+			Image:  "postgres:16",
+			Env:    map[string]string{"POSTGRES_PASSWORD": "x"},
+			Ports:  []string{"5432:5432"},
 			Health: "pg_isready", Timeout: 10,
 		}).
 		Run("s", "go test ./...")
@@ -88,7 +88,7 @@ func TestLowerStepNeedsAndOnFailure(t *testing.T) {
 		Run("setup", "s1").
 		Run("compile", "s2").
 		Run("smoke", "s3").StepNeeds("setup", "compile").
-			OnFailure(Handler("report", "echo fail"), Handler("cleanup", "echo clean"))
+		OnFailure(Handler("report", "echo fail"), Handler("cleanup", "echo clean"))
 	j := wf.ToPlan().Jobs[0]
 	smoke := j.Steps[2]
 	if len(smoke.Needs) != 2 || smoke.Needs[0] != "setup" {

@@ -37,7 +37,7 @@ type rpcResponse struct {
 
 // Server is a stdio MCP server for Ship Happens.
 type Server struct {
-	mgr  *Manager
+	mgr   *Manager
 	tools []toolDef
 }
 
@@ -183,8 +183,8 @@ func (s *Server) buildTools() []toolDef {
 
 	return []toolDef{
 		{
-			name: "ship_validate",
-			desc: "Compile and validate a Ship Happens pipeline (no execution). Returns diagnostics.",
+			name:   "ship_validate",
+			desc:   "Compile and validate a Ship Happens pipeline (no execution). Returns diagnostics.",
 			schema: fileSchema,
 			handler: func(args map[string]any) (any, error) {
 				file := strArg(args, "file")
@@ -204,8 +204,8 @@ func (s *Server) buildTools() []toolDef {
 			},
 		},
 		{
-			name: "ship_graph",
-			desc: "Return the pipeline's job dependency graph (ids and needs).",
+			name:   "ship_graph",
+			desc:   "Return the pipeline's job dependency graph (ids and needs).",
 			schema: fileSchema,
 			handler: func(args map[string]any) (any, error) {
 				plan, err := planfile.Load(strArg(args, "file"))
@@ -220,8 +220,8 @@ func (s *Server) buildTools() []toolDef {
 			},
 		},
 		{
-			name: "ship_run",
-			desc: "Start a pipeline run in the BACKGROUND and return a runId immediately. Poll with ship_status — polling never re-triggers work (no cold caches).",
+			name:   "ship_run",
+			desc:   "Start a pipeline run in the BACKGROUND and return a runId immediately. Poll with ship_status — polling never re-triggers work (no cold caches).",
 			schema: fileSchema,
 			handler: func(args map[string]any) (any, error) {
 				file := strArg(args, "file")
@@ -259,7 +259,7 @@ func (s *Server) buildTools() []toolDef {
 			name: "ship_cancel",
 			desc: "Cancel a running background run.",
 			schema: map[string]any{
-				"type": "object",
+				"type":       "object",
 				"properties": map[string]any{"runId": map[string]any{"type": "string"}},
 				"required":   []string{"runId"},
 			},

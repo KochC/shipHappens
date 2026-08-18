@@ -51,9 +51,9 @@ func TestInfoHeaderSuccessFailure(t *testing.T) {
 
 func TestStepOKFailedCached(t *testing.T) {
 	buf := capture(t)
-	Step("job", "s1", "1.2s", true, false)   // ok, not cached
-	Step("job", "s2", "0s", false, false)    // failed branch
-	Step("job", "s3", "0s", true, true)      // cached branch
+	Step("job", "s1", "1.2s", true, false) // ok, not cached
+	Step("job", "s2", "0s", false, false)  // failed branch
+	Step("job", "s3", "0s", true, true)    // cached branch
 	s := buf.String()
 	if !strings.Contains(s, "s1") || !strings.Contains(s, "✓") {
 		t.Error("ok step not rendered")

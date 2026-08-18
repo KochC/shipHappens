@@ -5,8 +5,8 @@ import "github.com/chris/shiphappens/internal/compiler"
 
 // DAG is an execution graph derived from a RunPlan.
 type DAG struct {
-	Nodes    []string            // job ids in definition order
-	Needs    map[string][]string // job -> deps
+	Nodes      []string            // job ids in definition order
+	Needs      map[string][]string // job -> deps
 	Dependents map[string][]string // job -> jobs that depend on it
 }
 

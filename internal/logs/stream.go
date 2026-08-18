@@ -22,12 +22,12 @@ func SetOutput(w io.Writer) io.Writer {
 }
 
 const (
-	reset  = "\033[0m"
-	green  = "\033[32m"
-	red    = "\033[31m"
-	dim    = "\033[2m"
-	cyan   = "\033[36m"
-	bold   = "\033[1m"
+	reset = "\033[0m"
+	green = "\033[32m"
+	red   = "\033[31m"
+	dim   = "\033[2m"
+	cyan  = "\033[36m"
+	bold  = "\033[1m"
 )
 
 var noColor = os.Getenv("NO_COLOR") != ""

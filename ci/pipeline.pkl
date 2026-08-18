@@ -40,6 +40,22 @@ jobs {
     }
   }
 
+  // Static analysis: formatting, staticcheck, and a vulnerability scan.
+  ["lint"] = new s.Job {
+    steps {
+      new { id = "gofmt"; run = """
+        unformatted=$(gofmt -l $(git ls-files '*.go' | grep -v '^demos/') || true)
+        if [ -n "$unformatted" ]; then echo "unformatted:"; echo "$unformatted"; exit 1; fi
+        """ }
+      new { id = "staticcheck"; run = """
+        go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+        """ }
+      new { id = "govulncheck"; run = """
+        go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        """ }
+    }
+  }
+
   ["build-cli"] = new s.Job {
     needs { "test"; "cover" }
     steps {

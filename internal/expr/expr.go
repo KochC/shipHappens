@@ -82,7 +82,7 @@ const (
 	tIdent
 	tString
 	tNumber
-	tOp     // == != && || ! ( ) .
+	tOp // == != && || ! ( ) .
 	tLParen
 	tRParen
 )

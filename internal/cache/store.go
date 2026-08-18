@@ -10,7 +10,7 @@ import (
 
 // Store is a content-addressed cache on disk.
 type Store struct {
-	root    string // ~/.ship/cache
+	root    string            // ~/.ship/cache
 	index   map[string]string // cache key -> object filename (outputs tarball)
 	indexFP string
 }

@@ -78,11 +78,11 @@ func (r *Run) snapshot() map[string]any {
 		}
 	}
 	out := map[string]any{
-		"runId":   r.ID,
-		"file":    r.File,
-		"state":   r.state.String(),
-		"jobs":    jobs,
-		"summary": map[string]int{"done": done, "running": running, "failed": failed, "pending": pending},
+		"runId":          r.ID,
+		"file":           r.File,
+		"state":          r.state.String(),
+		"jobs":           jobs,
+		"summary":        map[string]int{"done": done, "running": running, "failed": failed, "pending": pending},
 		"elapsedSeconds": int(r.elapsed().Seconds()),
 	}
 	if r.state != runRunning {

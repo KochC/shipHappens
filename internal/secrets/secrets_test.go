@@ -16,8 +16,8 @@ func TestLookupAndMissing(t *testing.T) {
 	job := &compiler.JobPlan{Secrets: []compiler.SecretRef{
 		{Name: "TOKEN"},
 		{Name: "ALIAS", FromEnv: "TOKEN"},
-		{Name: "EMPTY"},   // present but empty → treated as missing
-		{Name: "ABSENT"},  // not set
+		{Name: "EMPTY"},  // present but empty → treated as missing
+		{Name: "ABSENT"}, // not set
 	}}
 	missing := r.Missing(job)
 	if len(missing) != 2 {

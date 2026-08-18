@@ -4,11 +4,11 @@ import "testing"
 
 func ctx() Context {
 	vals := map[string]any{
-		"env.BRANCH":         "main",
-		"env.EMPTY":          "",
-		"outputs.build.ver":  "1.2.3",
-		"needs.test.result":  "success",
-		"flag":               true,
+		"env.BRANCH":        "main",
+		"env.EMPTY":         "",
+		"outputs.build.ver": "1.2.3",
+		"needs.test.result": "success",
+		"flag":              true,
 	}
 	return Context{
 		Lookup: func(path []string) (any, bool) {
@@ -43,14 +43,14 @@ func mustEval(t *testing.T, src string, c Context) bool {
 func TestLiteralsAndTruthiness(t *testing.T) {
 	c := ctx()
 	cases := map[string]bool{
-		"true":       true,
-		"false":      false,
-		"'hello'":    true,
-		"''":         false,
-		"'false'":    false,
-		"'0'":        false,
-		"1":          true,
-		"0":          false,
+		"true":    true,
+		"false":   false,
+		"'hello'": true,
+		"''":      false,
+		"'false'": false,
+		"'0'":     false,
+		"1":       true,
+		"0":       false,
 	}
 	for src, want := range cases {
 		if got := mustEval(t, src, c); got != want {
@@ -62,16 +62,16 @@ func TestLiteralsAndTruthiness(t *testing.T) {
 func TestEqualityAndLogic(t *testing.T) {
 	c := ctx()
 	cases := map[string]bool{
-		"env.BRANCH == 'main'":                true,
-		"env.BRANCH == 'dev'":                 false,
-		"env.BRANCH != 'dev'":                 true,
-		"env.BRANCH == 'main' && flag":        true,
-		"env.BRANCH == 'dev' || flag":         true,
-		"env.BRANCH == 'dev' && flag":         false,
-		"!(env.BRANCH == 'dev')":              true,
-		"!flag":                               false,
-		"outputs.build.ver == '1.2.3'":        true,
-		"needs.test.result == 'success'":      true,
+		"env.BRANCH == 'main'":           true,
+		"env.BRANCH == 'dev'":            false,
+		"env.BRANCH != 'dev'":            true,
+		"env.BRANCH == 'main' && flag":   true,
+		"env.BRANCH == 'dev' || flag":    true,
+		"env.BRANCH == 'dev' && flag":    false,
+		"!(env.BRANCH == 'dev')":         true,
+		"!flag":                          false,
+		"outputs.build.ver == '1.2.3'":   true,
+		"needs.test.result == 'success'": true,
 	}
 	for src, want := range cases {
 		if got := mustEval(t, src, c); got != want {
@@ -128,14 +128,14 @@ func TestPrecedence(t *testing.T) {
 func TestErrors(t *testing.T) {
 	c := ctx()
 	bad := []string{
-		"env. == 'x'",     // ident after dot missing
-		"(true",           // missing paren
-		"'unterminated",   // bad string
-		"1 +",             // unexpected op
-		"@bad",            // bad char
-		"foo(",            // call missing close
-		"nope()",          // unknown function
-		"true true",       // trailing token
+		"env. == 'x'",   // ident after dot missing
+		"(true",         // missing paren
+		"'unterminated", // bad string
+		"1 +",           // unexpected op
+		"@bad",          // bad char
+		"foo(",          // call missing close
+		"nope()",        // unknown function
+		"true true",     // trailing token
 	}
 	for _, src := range bad {
 		if _, err := Eval(src, c); err == nil {
@@ -229,7 +229,7 @@ func TestErrorLeftOperand(t *testing.T) {
 		"@ || true",
 		"@ && true",
 		"@ == 1",
-		"@",         // unary left
+		"@", // unary left
 	}
 	for _, src := range bad {
 		if _, err := Eval(src, c); err == nil {

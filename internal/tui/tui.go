@@ -233,4 +233,3 @@ func JobOrderFromIDs(ids []string) []string {
 	out := append([]string(nil), ids...)
 	return out
 }
-

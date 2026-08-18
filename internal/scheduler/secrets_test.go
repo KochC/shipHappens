@@ -78,8 +78,8 @@ func TestSecretResolvedAndMaskedInLogs(t *testing.T) {
 			Steps: []compiler.StepPlan{{ID: "s", Run: "echo token-is-$API_TOKEN"}}},
 	}}
 	res := Run(context.Background(), p, Options{
-		Workdir:  t.TempDir(),
-		NoCache:  true,
+		Workdir: t.TempDir(),
+		NoCache: true,
 		Resolver: secrets.NewWith(func(k string) (string, bool) {
 			if k == "API_TOKEN" {
 				return "supersecretvalue", true

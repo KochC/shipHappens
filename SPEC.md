@@ -565,6 +565,9 @@ glob walks.
   `make cover-check`); `graph`, `logs`, `runner`, `scheduler`, `validator` at
   100%.
 - All tests pass under the Go race detector.
+- **Static analysis** — `gofmt`, `go vet`, `staticcheck`, and `govulncheck` all
+  clean (run by the `lint` job in the self-build pipeline). The `go` directive in
+  `go.mod` pins a patched toolchain so the vulnerability scan stays green.
 - Zero external runtime dependencies (standard library only).
 - `make integration` runs container-backed tests behind a `//go:build docker`
   tag; they skip cleanly when no engine is present.

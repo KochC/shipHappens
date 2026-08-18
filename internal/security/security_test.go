@@ -48,13 +48,13 @@ func TestResolveAllowValues(t *testing.T) {
 
 func TestSanitizeEnvValue(t *testing.T) {
 	cases := map[string]string{
-		"normal title":                 "normal title",
-		"$(rm -rf /)":                   "(rm -rf /)",       // $ stripped
-		"`whoami`":                      "whoami",           // backticks stripped
-		"line1\nline2; evil":           "line1 line2; evil", // newline → space
-		"a\\b":                         "ab",               // backslash stripped
-		"  trim me  ":                  "trim me",
-		"tab\there":                    "tab here",
+		"normal title":       "normal title",
+		"$(rm -rf /)":        "(rm -rf /)",        // $ stripped
+		"`whoami`":           "whoami",            // backticks stripped
+		"line1\nline2; evil": "line1 line2; evil", // newline → space
+		"a\\b":               "ab",                // backslash stripped
+		"  trim me  ":        "trim me",
+		"tab\there":          "tab here",
 	}
 	for in, want := range cases {
 		if got := SanitizeEnvValue(in); got != want {
