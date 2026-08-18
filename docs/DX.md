@@ -543,8 +543,9 @@ It also serves the schema, templates, and DX guide as MCP **resources**
 (`shiphappens://schema`, `shiphappens://templates`, `shiphappens://dx`,
 `shiphappens://quickref`), all embedded in the binary. Together these let an
 agent **author a pipeline from scratch in any repo**: read `ship_docs`,
-`ship_scaffold` a starter, edit, then `ship_validate`. Scaffolded pipelines
-import the schema as a published Pkl package, so they resolve without vendoring.
+`ship_scaffold` a starter, edit, then `ship_validate`. `ship_scaffold` also
+vendors the schema (`.ship/ship.pkl` + `templates.pkl`, embedded in the binary)
+beside the pipeline, so it validates immediately with no network or auth.
 
 The async `ship_run` + `ship_status` design is deliberate: an agent starts a run,
 then polls status on its own cadence without ever blocking or accidentally

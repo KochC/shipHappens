@@ -77,6 +77,17 @@ func (s *Server) readResource(req *rpcRequest, reply func(any) *rpcResponse, fai
 // pkl/PklProject's version.
 const SchemaPackage = "package://github.com/KochC/shipHappens/pkl/shiphappens@1.0.0#/ship.pkl"
 
+// vendorDir is the directory ship_scaffold writes the schema into, relative to
+// the scaffolded pipeline. A local amends keeps a scaffolded pipeline fully
+// self-contained (no network, no auth) — the right default while the schema
+// package is not publicly downloadable.
+const vendorDir = ".ship"
+
+// localAmends is the import a scaffolded pipeline uses: the vendored schema
+// beside it. (When the repo/package is public, `amends "SchemaPackage"` is the
+// zero-vendoring alternative — see ship_docs.)
+const localAmends = vendorDir + "/ship.pkl"
+
 // authoringQuickref is a compact, self-contained cheat sheet returned by
 // ship_docs (topic=quickref). It gives an agent enough to author a correct
 // pipeline without reading the full schema, and points at the deeper topics.
@@ -87,7 +98,7 @@ name and a map of jobs. Jobs form a DAG via ` + "`needs`" + `.
 
 ## Minimal pipeline
 ` + "```pkl" + `
-amends "` + SchemaPackage + `"
+amends "` + localAmends + `"   // vendored schema (ship_scaffold writes it for you)
 
 name = "CI"
 
@@ -101,6 +112,10 @@ jobs {
   }
 }
 ` + "```" + `
+
+> Use ship_scaffold to generate this plus the vendored ` + "`" + vendorDir + "/ship.pkl`" + ` so it
+> validates immediately. (If the schema is published as a public Pkl package you
+> can instead ` + "`amends \"" + SchemaPackage + "\"`" + ` with no vendoring.)
 
 ## Workflow fields
 - name: String (required)          | vars: Mapping<String,String>
@@ -136,18 +151,19 @@ topic=templates; for the complete guide topic=dx. Validate anything you write
 with the ship_validate tool.
 `
 
-// starterTemplate is the pipeline.pkl ship_scaffold writes. %s is the name.
+// starterTemplate is the pipeline.pkl ship_scaffold writes. %[1]s is the local
+// amends path (vendored schema); %[2]s is the workflow name.
 const starterTemplate = `/// Ship Happens pipeline. Author, then:
 ///
 ///     ship run pipeline.pkl            # compile → validate → run
 ///     ship run pipeline.pkl --tui      # live dashboard
 ///     ship validate pipeline.pkl       # check without running
 ///
-/// Schema reference: call the MCP ship_docs tool (topic=schema|dx), or see
-/// https://github.com/KochC/shipHappens.
-amends "` + SchemaPackage + `"
+/// The schema is vendored beside this file (%[1]s). Schema reference: call the
+/// MCP ship_docs tool (topic=schema|dx), or see https://github.com/KochC/shipHappens.
+amends "%[1]s"
 
-name = "%s"
+name = "%[2]s"
 
 vars {
   ["GREETING"] = "hello"
@@ -174,8 +190,10 @@ jobs {
 }
 `
 
-// scaffold writes a starter pipeline.pkl into dir (default cwd), returning a
-// tool result with the path and contents. It refuses to clobber unless force.
+// scaffold writes a starter pipeline.pkl into dir (default cwd) together with a
+// vendored copy of the schema (and templates) in dir/.ship, so the pipeline
+// validates immediately with no network or auth. Refuses to clobber the
+// pipeline unless force.
 func scaffold(dir, name string, force bool) (any, error) {
 	if name == "" {
 		name = "CI"
@@ -190,14 +208,29 @@ func scaffold(dir, name string, force bool) (any, error) {
 	if _, err := os.Stat(path); err == nil && !force {
 		return nil, fmt.Errorf("%s already exists (pass force=true to overwrite)", path)
 	}
-	content := fmt.Sprintf(starterTemplate, name)
+
+	// Vendor the schema + templates next to the pipeline so `amends` resolves
+	// locally. These are embedded in the binary, so this works from any repo.
+	vdir := filepath.Join(dir, vendorDir)
+	if err := os.MkdirAll(vdir, 0o755); err != nil {
+		return nil, fmt.Errorf("create %s: %w", vdir, err)
+	}
+	if err := os.WriteFile(filepath.Join(vdir, "ship.pkl"), []byte(assets.SchemaPkl), 0o644); err != nil {
+		return nil, fmt.Errorf("vendor schema: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(vdir, "templates.pkl"), []byte(assets.TemplatesPkl), 0o644); err != nil {
+		return nil, fmt.Errorf("vendor templates: %w", err)
+	}
+
+	content := fmt.Sprintf(starterTemplate, localAmends, name)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, fmt.Errorf("write %s: %w", path, err)
 	}
 	return toolJSON(map[string]any{
-		"written": path,
-		"name":    name,
-		"next":    fmt.Sprintf("edit %s, then validate with ship_validate {file: %q}", path, path),
-		"content": content,
+		"written":  path,
+		"vendored": []string{filepath.Join(vdir, "ship.pkl"), filepath.Join(vdir, "templates.pkl")},
+		"name":     name,
+		"next":     fmt.Sprintf("edit %s, then validate with ship_validate {file: %q}", path, path),
+		"content":  content,
 	}), nil
 }

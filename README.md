@@ -184,10 +184,11 @@ The async **`ship_run` → `ship_status`** split is the key: an agent starts a r
 and polls on its own cadence, never blocking and never accidentally re-running
 (status is a pure in-memory snapshot fed by live scheduler events).
 
-> **Authoring in another repo?** Scaffolded pipelines import the schema as a
-> published Pkl package — `amends "package://github.com/KochC/shipHappens/pkl/shiphappens@1.0.0#/ship.pkl"`
-> — so they resolve anywhere without vendoring. Locally, the demos amend
-> `pkl/ship.pkl` directly.
+> **Authoring in another repo?** `ship_scaffold` vendors the schema next to the
+> pipeline (`.ship/ship.pkl` + `templates.pkl`, embedded in the binary), so a
+> scaffolded `pipeline.pkl` validates immediately — no network, no auth. (If the
+> schema is ever published as a public Pkl package, `amends "package://…/ship@1"`
+> is the zero-vendoring alternative.)
 
 ---
 

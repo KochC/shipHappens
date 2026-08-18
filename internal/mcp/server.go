@@ -331,7 +331,7 @@ func (s *Server) buildTools() []toolDef {
 		},
 		{
 			name: "ship_scaffold",
-			desc: "Write a valid starter pipeline.pkl into a target directory so you can author a Ship Happens pipeline in any repo. Resolves the correct schema import (a published Pkl package by default). Returns the path written and the file contents.",
+			desc: "Write a valid starter pipeline.pkl into a target directory so you can author a Ship Happens pipeline in any repo. Also vendors the schema (.ship/ship.pkl + templates.pkl) beside it so the pipeline validates immediately — no network or auth. Returns the paths written and the pipeline contents.",
 			schema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

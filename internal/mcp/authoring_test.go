@@ -113,11 +113,18 @@ func TestShipScaffoldWritesValidStarter(t *testing.T) {
 	if !strings.Contains(content, `name = "MyApp"`) {
 		t.Error("workflow name not applied")
 	}
-	if !strings.Contains(content, "amends \"package://") {
-		t.Error("scaffold should reference the published Pkl package")
+	// Default is a LOCAL vendored amends (no unreachable package URL).
+	if !strings.Contains(content, `amends "`+localAmends+`"`) {
+		t.Errorf("scaffold should amend the vendored schema, got:\n%s", content)
 	}
-	if !strings.Contains(content, SchemaPackage) {
-		t.Error("scaffold import should match SchemaPackage")
+	if strings.Contains(content, "package://") {
+		t.Error("scaffold should not reference the (private) Pkl package by default")
+	}
+	// The schema + templates must be vendored beside the pipeline.
+	for _, f := range []string{".ship/ship.pkl", ".ship/templates.pkl"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("expected vendored %s: %v", f, err)
+		}
 	}
 }
 
@@ -146,6 +153,36 @@ func TestShipScaffoldNoClobber(t *testing.T) {
 	r = call(t, s, "tools/call", map[string]any{"name": "ship_scaffold", "arguments": map[string]any{"dir": dir, "force": true}})
 	if strings.Contains(strings.ToLower(toolResultText(t, r)), "already exists") {
 		t.Error("force=true should overwrite")
+	}
+}
+
+func TestShipScaffoldErrors(t *testing.T) {
+	s := NewServer()
+
+	// dir path is actually a file → MkdirAll fails.
+	tmp := t.TempDir()
+	filePath := filepath.Join(tmp, "afile")
+	if err := os.WriteFile(filePath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := call(t, s, "tools/call", map[string]any{
+		"name": "ship_scaffold", "arguments": map[string]any{"dir": filePath},
+	})
+	if !strings.Contains(strings.ToLower(toolResultText(t, r)), "create dir") {
+		t.Errorf("expected create-dir error, got: %s", toolResultText(t, r))
+	}
+
+	// pipeline.pkl exists as a directory → WriteFile(pipeline) fails (force skips
+	// the clobber guard).
+	tmp2 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp2, "pipeline.pkl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r = call(t, s, "tools/call", map[string]any{
+		"name": "ship_scaffold", "arguments": map[string]any{"dir": tmp2, "force": true},
+	})
+	if !strings.Contains(strings.ToLower(toolResultText(t, r)), "write") {
+		t.Errorf("expected write error, got: %s", toolResultText(t, r))
 	}
 }
 

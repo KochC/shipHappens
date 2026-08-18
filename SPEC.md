@@ -543,7 +543,8 @@ glob walks.
   (JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`, `resources/list`,
   `resources/read`) so agents/IDEs can drive **and author** pipelines. Tools:
   `ship_docs` (authoring quickref / schema / templates / DX guide),
-  `ship_scaffold` (write a valid starter `pipeline.pkl` into any dir),
+  `ship_scaffold` (write a valid starter `pipeline.pkl` into any dir, vendoring
+  the schema beside it so it validates offline),
   `ship_validate`, `ship_graph`, `ship_run` (starts a background run, returns a
   `runId`), `ship_status` (read-only poll of job/step progress — never
   re-triggers work), `ship_cancel`, `ship_runs`, `ship_cache_du`. The schema,
