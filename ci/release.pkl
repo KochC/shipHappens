@@ -1,0 +1,135 @@
+/// Local release — replaces .github/workflows/release.yml (the `v*` job), with
+/// automatic versioning driven by the git tags.
+///
+///     ship run ci/release.pkl                      # bump=patch: vX.Y.(Z+1)
+///     ship run ci/release.pkl --var bump=minor     # vX.(Y+1).0
+///     ship run ci/release.pkl --var bump=major     # v(X+1).0.0
+///     ship run ci/release.pkl --var version=v1.2.3 # pin an explicit version
+///     ship run ci/release.pkl --job build          # build only (no version/tag/publish)
+///
+/// The `version` job computes the next semver from the latest `v*` git tag
+/// (local + remote), refuses on a dirty tree or an existing tag, creates the tag
+/// and pushes it, and writes it to VERSION (a build input). `build` then
+/// cross-compiles every binary; `publish` uploads a GitHub release via `gh`
+/// (host auth). Native jobs — they inherit your environment; network is on for
+/// git push and the upload.
+amends "../pkl/ship.pkl"
+
+name = "Local Release"
+
+vars {
+  ["bump"] = "patch"   // patch|minor|major — how to increment the latest tag
+  ["version"] = ""     // set to pin an explicit vX.Y.Z (skips the bump)
+}
+
+jobs {
+  // Compute the next version from git history (read-only — no tagging here, so
+  // `--job build` is a safe dry run). Tagging + push happen in `publish`.
+  ["version"] {
+    network = true
+    steps {
+      new {
+        id = "compute"
+        run = """
+          set -eu
+          git fetch --tags --quiet origin || true
+
+          if [ -n "${version:-}" ]; then
+            V="$version"
+          else
+            LATEST="$( { git tag -l 'v*'; git ls-remote --tags origin 2>/dev/null | sed 's#.*refs/tags/##; s/\\^{}//'; } \
+              | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -V | tail -1 )"
+            LATEST="${LATEST:-v0.0.0}"
+            MAJOR="$(echo "${LATEST#v}" | cut -d. -f1)"
+            MINOR="$(echo "${LATEST#v}" | cut -d. -f2)"
+            PATCH="$(echo "${LATEST#v}" | cut -d. -f3)"
+            case "${bump:-patch}" in
+              major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH+1)) ;;
+              *) echo "invalid bump '${bump}' (use patch|minor|major)"; exit 1 ;;
+            esac
+            V="v${MAJOR}.${MINOR}.${PATCH}"
+            echo "latest tag: ${LATEST}  →  next (${bump}): ${V}"
+          fi
+
+          if git rev-parse "$V" >/dev/null 2>&1 || git ls-remote --tags origin "$V" 2>/dev/null | grep -q "$V"; then
+            echo "tag $V already exists — bump again or pin a new --var version"; exit 1
+          fi
+          echo "$V" > VERSION
+          echo "next version: $V (not yet tagged)"
+        """
+      }
+    }
+    outputs { "VERSION" }
+  }
+
+  // Cross-compile ship, ship-mcp, ship-egress for all targets into dist/.
+  ["build"] {
+    needs { "version" }
+    steps {
+      new {
+        id = "cross-compile"
+        run = """
+          set -eu
+          V="$(cat VERSION 2>/dev/null || git describe --tags --always --dirty)"
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${V}"
+          build() {
+            cmd="$1"; os="$2"; arch="$3"; ext="${4:-}"
+            out="${cmd}_${V}_${os}_${arch}${ext}"
+            echo "building $out"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "$LDFLAGS" -o "dist/${out}" ./cmd/${cmd}
+          }
+          for cmd in ship ship-mcp ship-egress; do
+            build "$cmd" linux  amd64
+            build "$cmd" linux  arm64
+            build "$cmd" darwin amd64
+            build "$cmd" darwin arm64
+            build "$cmd" windows amd64 .exe
+          done
+          ls -la dist
+        """
+        cache = new Cache { inputs { "**/*.go"; "go.mod"; "go.sum"; "VERSION" }; outputs { "dist/**" } }
+      }
+      new {
+        id = "checksums"
+        run = """
+          set -eu
+          cd dist
+          if command -v sha256sum >/dev/null; then SUM="sha256sum"; else SUM="shasum -a 256"; fi
+          $SUM ship_* ship-mcp_* ship-egress_* > checksums.txt
+          cat checksums.txt
+        """
+      }
+    }
+    outputs { "dist/**" }
+  }
+
+  // Tag + push + publish. Refuses a dirty tree. Native + network.
+  ["publish"] {
+    needs { "build" }
+    network = true
+    steps {
+      new {
+        id = "gh-release"
+        run = """
+          set -eu
+          V="$(cat VERSION)"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "working tree is dirty — commit or stash before publishing"; exit 1
+          fi
+          gh auth status
+          git tag -a "$V" -m "Release $V"
+          git push origin "$V"
+          gh release create "$V" \
+            --title "$V" \
+            --generate-notes \
+            dist/ship_* dist/ship-mcp_* dist/ship-egress_* dist/checksums.txt
+          echo "tagged, pushed, and published $V"
+        """
+      }
+    }
+  }
+}

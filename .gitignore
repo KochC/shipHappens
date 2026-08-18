@@ -32,3 +32,7 @@ dist/
 
 # pkl package build output
 pkl/.out/
+
+# release scratch (written by ci/release*.pkl)
+/VERSION
+/PKL_VERSION

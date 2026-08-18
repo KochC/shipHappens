@@ -1,0 +1,111 @@
+/// Local Pkl-package release — replaces the `pkl-v*` job in
+/// .github/workflows/release.yml, with automatic versioning from the git tags.
+///
+///     ship run ci/release-pkl.pkl                    # bump=patch: pkl-vX.Y.(Z+1)
+///     ship run ci/release-pkl.pkl --var bump=minor   # pkl-vX.(Y+1).0
+///     ship run ci/release-pkl.pkl --var version=1.2.3
+///     ship run ci/release-pkl.pkl --job package      # build only (no version/tag/publish)
+///
+/// `version` computes the next semver from the latest `pkl-v*` tag and writes it
+/// to pkl/PklProject (the package's source of truth) + PKL_VERSION. `package`
+/// builds the zip; `publish` commits the PklProject bump, tags pkl-vX.Y.Z,
+/// pushes, and creates the GitHub release whose URL the package's packageZipUrl
+/// points at. Requires `pkl` and `gh` (host auth).
+amends "../pkl/ship.pkl"
+
+name = "Local Pkl Package Release"
+
+vars {
+  ["bump"] = "patch"
+  ["version"] = ""
+}
+
+jobs {
+  ["version"] {
+    network = true
+    steps {
+      new {
+        id = "compute"
+        run = """
+          set -eu
+          git fetch --tags --quiet origin || true
+          if [ -n "${version:-}" ]; then
+            V="$version"
+          else
+            LATEST="$( { git tag -l 'pkl-v*'; git ls-remote --tags origin 2>/dev/null | sed 's#.*refs/tags/##; s/\\^{}//'; } \
+              | grep -E '^pkl-v[0-9]+\\.[0-9]+\\.[0-9]+$' | sed 's/^pkl-v//' | sort -V | tail -1 )"
+            LATEST="${LATEST:-0.0.0}"
+            MAJOR="$(echo "$LATEST" | cut -d. -f1)"
+            MINOR="$(echo "$LATEST" | cut -d. -f2)"
+            PATCH="$(echo "$LATEST" | cut -d. -f3)"
+            case "${bump:-patch}" in
+              major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH+1)) ;;
+              *) echo "invalid bump '${bump}'"; exit 1 ;;
+            esac
+            V="${MAJOR}.${MINOR}.${PATCH}"
+            echo "latest pkl tag: pkl-v${LATEST}  →  next (${bump}): pkl-v${V}"
+          fi
+          if git ls-remote --tags origin "pkl-v${V}" 2>/dev/null | grep -q "pkl-v${V}"; then
+            echo "tag pkl-v${V} already exists"; exit 1
+          fi
+          # Update the package's source-of-truth version in PklProject.
+          sed -i.bak "s/^  version = \\".*\\"/  version = \\"${V}\\"/" pkl/PklProject && rm -f pkl/PklProject.bak
+          echo "$V" > PKL_VERSION
+          echo "set pkl/PklProject version to ${V}"
+        """
+      }
+    }
+    outputs { "PKL_VERSION" }
+  }
+
+  ["package"] {
+    needs { "version" }
+    steps {
+      new {
+        id = "build"
+        run = """
+          set -eu
+          rm -rf dist/pkl
+          pkl project package pkl/ --output-path dist/pkl
+          ls -la dist/pkl
+        """
+        cache = new Cache { inputs { "pkl/**"; "PKL_VERSION" }; outputs { "dist/pkl/**" } }
+      }
+    }
+    outputs { "dist/pkl/**" }
+  }
+
+  ["publish"] {
+    needs { "package" }
+    network = true
+    steps {
+      new {
+        id = "gh-release"
+        run = """
+          set -eu
+          V="$(cat PKL_VERSION)"
+          TAG="pkl-v${V}"
+          gh auth status
+          # Commit the version bump so the tag points at a matching PklProject.
+          if [ -n "$(git status --porcelain pkl/PklProject)" ]; then
+            git add pkl/PklProject
+            git commit -m "chore: bump Pkl package to ${V}"
+            git push origin HEAD
+          fi
+          git tag -a "$TAG" -m "Pkl package ${V}"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            dist/pkl/shiphappens@*.zip \
+            dist/pkl/shiphappens@*.zip.sha256 \
+            dist/pkl/shiphappens@*.sha256 \
+            "dist/pkl/shiphappens@${V}"
+          echo "published $TAG"
+        """
+      }
+    }
+  }
+}

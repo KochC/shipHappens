@@ -415,6 +415,7 @@ Bypass in a pinch with `git commit/push --no-verify`.
 | 📖 [**docs/DX.md**](docs/DX.md) | Developer experience & full feature guide + Pkl schema reference |
 | 🏗️ [**SPEC.md**](SPEC.md) | System specification — architecture, IR, execution model |
 | 📊 [**docs/gha-gap-analysis.md**](docs/gha-gap-analysis.md) | Feature-by-feature GitHub Actions comparison |
+| 🚀 [**docs/RELEASING.md**](docs/RELEASING.md) | Cut releases locally (auto-versioned) — replaces GitHub Actions |
 | 🧭 [**docs/adr/**](docs/adr/) | Architecture decision records |
 
 <div align="center">
