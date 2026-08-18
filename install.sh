@@ -87,3 +87,4 @@ esac
 
 echo
 echo "Pkl pipelines also require the pkl CLI: https://pkl-lang.org (e.g. brew install pkl)"
+echo "For agents/IDEs, the MCP server ships as a separate 'ship-mcp' release asset."

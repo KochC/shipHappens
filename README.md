@@ -98,8 +98,9 @@ container) · overlayfs isolation · workflow vars & host-sourced **secrets**
 (masked, fail-fast) · content-addressed **step cache** · **job resume** ·
 `--changed` · **timeouts**, **retries**, **continue-on-error** · **`if:`
 conditionals & outputs** · **services** (sidecars) · step-level env/workdir/shell
-· preheating · `CleanAfter` pruning · **cache GC** · live **TUI** · compiled JSON
-**plan** artifact · reusable **Pkl templates** · a standalone **`ship`** CLI.
+· preheating · `CleanAfter` pruning · **cache GC** · live **TUI** · **MCP server**
+(for agents/IDEs) · compiled JSON **plan** artifact · reusable **Pkl templates** ·
+a standalone **`ship`** CLI.
 
 See how it compares to GitHub Actions: [docs/gha-gap-analysis.md](docs/gha-gap-analysis.md).
 

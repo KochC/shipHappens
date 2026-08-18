@@ -527,6 +527,13 @@ glob walks.
   step, per-job elapsed timers, and a running summary. Suppresses streaming logs
   (quiet mode) while active.
 - **Summary line:** `✓/✗ <name> in <dur> (N ran, N cached, N resumed)`.
+- **MCP server** (`ship-mcp`): a Model Context Protocol server over stdio
+  (JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`) so agents/IDEs can
+  drive pipelines. Tools: `ship_validate`, `ship_graph`, `ship_run` (starts a
+  background run, returns a `runId`), `ship_status` (read-only poll of job/step
+  progress — never re-triggers work), `ship_cancel`, `ship_runs`,
+  `ship_cache_du`. Background runs stream scheduler events into an in-memory
+  snapshot, so status polling is cheap and cold-cache-safe.
 
 ---
 

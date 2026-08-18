@@ -8,7 +8,7 @@ COVER_PROFILE := coverage.out
 # compiler package (pure type/IR definitions) — none have unit tests by design.
 PKGS := $(shell go list ./... | grep -vE '/workflows/|/demos/|/cmd/|/internal/compiler')
 
-.PHONY: all build ship install test vet race cover cover-html cover-check integration pkl-test clean
+.PHONY: all build ship ship-mcp install test vet race cover cover-html cover-check integration pkl-test clean
 
 all: vet test
 
@@ -19,6 +19,10 @@ build:
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ship:
 	go build -ldflags "-X main.version=$(VERSION)" -o ship ./cmd/ship
+
+# Build the MCP server binary.
+ship-mcp:
+	go build -ldflags "-X main.version=$(VERSION)" -o ship-mcp ./cmd/ship-mcp
 
 # Install the ship CLI into GOBIN / $GOPATH/bin.
 install:
@@ -83,5 +87,5 @@ pkl-test:
 	go test -tags=pkl -run Integration ./internal/planfile/ -v
 
 clean:
-	rm -f $(COVER_PROFILE) coverage.html ship
+	rm -f $(COVER_PROFILE) coverage.html ship ship-mcp
 	rm -rf dist

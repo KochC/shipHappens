@@ -146,6 +146,8 @@ Implemented since the initial analysis:
 - **Native versioned toolchains**: pin `go`/`node`/… versions for native jobs
   (mise-backed) — reproducible builds without containers, which GHA only offers
   via per-language setup actions.
+- **MCP server** (`ship-mcp`): agents/IDEs can validate, inspect, run (async),
+  and poll pipelines over the Model Context Protocol — GHA has nothing like it.
 
 Still open in Tier 2: **uploadable artifacts** (beyond resume cache) and named
 **concurrency groups**.

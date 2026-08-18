@@ -28,21 +28,23 @@ jobs:
           mkdir -p dist
           LDFLAGS="-s -w -X main.version=${VERSION}"
           build() {
-            local os="$1" arch="$2" ext="${3:-}"
-            local out="ship_${VERSION}_${os}_${arch}${ext}"
+            local cmd="$1" os="$2" arch="$3" ext="${4:-}"
+            local out="${cmd}_${VERSION}_${os}_${arch}${ext}"
             echo "building $out"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
-              go build -trimpath -ldflags "$LDFLAGS" -o "dist/${out}" ./cmd/ship
+              go build -trimpath -ldflags "$LDFLAGS" -o "dist/${out}" ./cmd/${cmd}
           }
-          build linux   amd64
-          build linux   arm64
-          build darwin  amd64
-          build darwin  arm64
-          build windows amd64 .exe
+          for target in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64"; do
+            set -- $target
+            build ship     "$1" "$2"
+            build ship-mcp "$1" "$2"
+          done
+          build ship     windows amd64 .exe
+          build ship-mcp windows amd64 .exe
 
       - name: Checksums
         working-directory: dist
-        run: sha256sum ship_* > checksums.txt
+        run: sha256sum ship_* ship-mcp_* > checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -51,4 +53,5 @@ jobs:
           generate_release_notes: true
           files: |
             dist/ship_*
+            dist/ship-mcp_*
             dist/checksums.txt

@@ -514,6 +514,35 @@ package docs. Direction is Pkl-first ([ADR-0001](adr/0001-authoring-frontends.md
 
 ---
 
+## 13.5 MCP server (for agents & IDEs)
+
+`ship-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server
+(JSON-RPC over stdio) so agents and MCP-aware IDEs can drive Ship Happens.
+Register it with your MCP client:
+
+```json
+{ "mcpServers": { "shiphappens": { "command": "ship-mcp" } } }
+```
+
+Tools exposed:
+
+| Tool | What it does |
+|---|---|
+| `ship_validate` | Compile + validate a pipeline (diagnostics). |
+| `ship_graph` | Return the job dependency graph. |
+| `ship_run` | Start a run **in the background**, return a `runId` immediately. |
+| `ship_status` | Poll a run's job/step progress & summary — **read-only, never re-triggers work** (no cold caches). |
+| `ship_cancel` | Cancel a running run. |
+| `ship_runs` | List runs started this session. |
+| `ship_cache_du` | Report cache disk usage. |
+
+The async `ship_run` + `ship_status` design is deliberate: an agent starts a run,
+then polls status on its own cadence without ever blocking or accidentally
+re-running work. Runs stream real scheduler events (JobStarted/Finished/Skipped,
+StepStarted) into an in-memory snapshot.
+
+---
+
 ## 14. Full Pkl schema reference
 
 Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
