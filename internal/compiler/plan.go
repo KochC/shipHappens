@@ -16,10 +16,21 @@ type RunPlan struct {
 	Toolchain map[string]string `json:"toolchain,omitempty"`
 	// Security is the workflow-wide supply-chain / network policy.
 	Security *SecurityPolicy `json:"security,omitempty"`
+	// Notify configures live notifications for the run (desktop/webhook/exec).
+	Notify *NotifySpec `json:"notify,omitempty"`
 	// Preheat is warm-up work (image pull + optional cache-priming command) run
 	// concurrently before the DAG. Advisory — failures never fail the build.
 	Preheat []PreheatSpec `json:"preheat,omitempty"`
 	Jobs    []JobPlan     `json:"jobs"`
+}
+
+// NotifySpec configures live notifications. All delivery is best-effort.
+type NotifySpec struct {
+	Desktop bool   `json:"desktop,omitempty"` // native desktop notifications
+	Webhook string `json:"webhook,omitempty"` // POST JSON to this URL
+	Exec    string `json:"exec,omitempty"`    // run a shell command (SHIP_NOTIFY_* env)
+	OnStart bool   `json:"onStart,omitempty"` // notify when the run starts
+	OnJob   bool   `json:"onJob,omitempty"`   // notify on each job failure
 }
 
 // SecurityPolicy configures supply-chain defaults for the whole workflow.

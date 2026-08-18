@@ -99,8 +99,9 @@ container) · overlayfs isolation · workflow vars & host-sourced **secrets**
 `--changed` · **timeouts**, **retries**, **continue-on-error** · **`if:`
 conditionals & outputs** · **services** (sidecars) · step-level env/workdir/shell
 · preheating · `CleanAfter` pruning · **cache GC** · live **TUI** · **MCP server**
-(for agents/IDEs) · compiled JSON **plan** artifact · reusable **Pkl templates** ·
-a standalone **`ship`** CLI.
+(for agents/IDEs) · **live notifications** · **enforced egress allow-lists** ·
+compiled JSON **plan** artifact · reusable **Pkl templates** · a standalone
+**`ship`** CLI.
 
 See how it compares to GitHub Actions: [docs/gha-gap-analysis.md](docs/gha-gap-analysis.md).
 
@@ -134,7 +135,11 @@ go install github.com/chris/shiphappens/cmd/ship@v0.1.0   # or @latest
 
 **Prebuilt binaries:** grab a `ship_<version>_<os>_<arch>` asset from the
 [Releases page](https://github.com/KochC/shipHappens/releases) (checksums in
-`checksums.txt`).
+`checksums.txt`). Two companion binaries are published alongside `ship`:
+**`ship-mcp`** (the [MCP](https://modelcontextprotocol.io) server for
+agents/IDEs — register with `{ "command": "ship-mcp" }`) and **`ship-egress`**
+(the egress-filtering proxy Ship starts automatically to enforce a job's
+`allow` list). Neither is required for normal `ship run` use.
 
 ```bash
 ship version
@@ -178,6 +183,21 @@ make cover-check   # 95% coverage gate
 make integration   # container-backed tests (needs Docker)  [ENGINE=docker|podman|apple]
 make pkl-test      # Pkl integration (needs the pkl CLI)
 ```
+
+### Git hooks (dogfooded)
+
+Ship Happens gates its own commits with version-controlled hooks in
+[`.githooks/`](.githooks). Enable them once:
+
+```bash
+make hooks         # sets core.hooksPath=.githooks
+```
+
+- **pre-commit** (fast, ~1–2s): `gofmt` on staged files + `go build` + `go vet`.
+- **pre-push**: dogfoods the tool — `ship run ci/precommit.pkl` (vet + race
+  tests), mirroring what CI checks first. The full coverage gate stays in CI.
+
+Bypass in a pinch with `git commit/push --no-verify`.
 
 ## Documentation
 

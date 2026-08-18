@@ -28,6 +28,15 @@ func (w *Workflow) ToPlan() *compiler.RunPlan {
 			p.Toolchain[k] = v
 		}
 	}
+	if w.notify != nil {
+		p.Notify = &compiler.NotifySpec{
+			Desktop: w.notify.Desktop,
+			Webhook: w.notify.Webhook,
+			Exec:    w.notify.Exec,
+			OnStart: w.notify.OnStart,
+			OnJob:   w.notify.OnJob,
+		}
+	}
 	for _, ph := range w.preheat {
 		p.Preheat = append(p.Preheat, compiler.PreheatSpec{
 			Image:  ph.Image,

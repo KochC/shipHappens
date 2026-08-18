@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Ship Happens pre-push hook — dogfoods the tool on itself: runs the small
+# ci/precommit.pkl pipeline (vet + race tests) with a locally-built `ship`
+# binary before allowing a push. This mirrors what CI checks first, so a green
+# push is very likely a green CI.
+#
+# Enable once with:  make hooks   (sets core.hooksPath to .githooks)
+# Skip in a pinch with:  git push --no-verify
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+ship_bin="bin/ship"
+
+# Build (or rebuild) the ship binary if it's missing or older than any source.
+needs_build=0
+if [ ! -x "$ship_bin" ]; then
+  needs_build=1
+elif [ -n "$(find . -name '*.go' -newer "$ship_bin" -not -path './demos/*' -print -quit)" ]; then
+  needs_build=1
+fi
+if [ "$needs_build" -eq 1 ]; then
+  echo "• building $ship_bin"
+  go build -o "$ship_bin" ./cmd/ship
+fi
+
+echo "• ship run ci/precommit.pkl  (dogfooding the pre-push gate)"
+"$ship_bin" run ci/precommit.pkl --no-tui
+
+echo "✓ pre-push gate passed"

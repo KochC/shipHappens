@@ -21,6 +21,8 @@ demos/**/ship
 
 # release/build outputs
 /ship
+/ship-mcp
+/ship-egress
 dist/
 
 # self-build output

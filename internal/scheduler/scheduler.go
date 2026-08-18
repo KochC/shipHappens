@@ -214,7 +214,7 @@ func (s *scheduler) runnerFor(job *compiler.JobPlan, netName string) runner.Runn
 				net = &yes
 			case security.NetAllow:
 				yes := true
-				net = &yes // allow-list opts into network (egress scoping is best-effort, see docs)
+				net = &yes // allow-list opts into network; a filtering egress proxy enforces the hosts
 			}
 		}
 		if job.Overlay {
@@ -230,6 +230,41 @@ func (s *scheduler) runnerFor(job *compiler.JobPlan, netName string) runner.Runn
 		}
 	}
 	return runner.NativeRunner{}
+}
+
+// startEgress starts a host-side filtering proxy for a container job that has an
+// egress allow-list, returning the proxy (nil when not needed) and the proxy env
+// the container must use. Native jobs and jobs without an allow-list get (nil,nil).
+func (s *scheduler) startEgress(ctx context.Context, job *compiler.JobPlan) (*runner.EgressProxy, map[string]string, error) {
+	if job.Image == "" {
+		return nil, nil, nil
+	}
+	var policy *compiler.SecurityPolicy
+	if s.plan != nil {
+		policy = s.plan.Security
+	}
+	dec := security.Resolve(policy, job)
+	if dec.Mode != security.NetAllow || len(dec.Allow) == 0 {
+		return nil, nil, nil
+	}
+	ep, err := runner.StartEgressProxy(ctx, dec.Allow)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ep, ep.ProxyEnv(runner.ContainerHost(s.opts.Engine)), nil
+}
+
+// withProxyEnv attaches egress-proxy env to a container runner (no-op for the
+// native and overlay runners, which don't carry a proxy config).
+func withProxyEnv(r runner.Runner, proxyEnv map[string]string) runner.Runner {
+	if len(proxyEnv) == 0 {
+		return r
+	}
+	if cr, ok := r.(runner.ContainerRunner); ok {
+		cr.ProxyEnv = proxyEnv
+		return cr
+	}
+	return r
 }
 
 // fingerprint computes a job's resume fingerprint. Deps are done, so their
@@ -327,6 +362,24 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	}
 
 	run := s.runnerFor(job, svcNet)
+
+	// Real egress enforcement: for container jobs with an allow-list, start a
+	// host-side filtering proxy and route the container's egress through it.
+	ep, proxyEnv, err := s.startEgress(ctx, job)
+	if err != nil {
+		logs.Failure("✗ [%s] egress proxy failed: %v", job.ID, err)
+		s.finishFailed(ctx, job)
+		return
+	}
+	if ep != nil {
+		defer func() {
+			if b := ep.Blocked(); len(b) > 0 {
+				logs.Info("[%s] egress blocked: %v", job.ID, b)
+			}
+			ep.Stop()
+		}()
+	}
+	run = withProxyEnv(run, proxyEnv)
 
 	// Conditional: skip the job when its `if` evaluates false. A skipped job is
 	// treated as satisfied (not failed); dependents still run.
@@ -595,7 +648,6 @@ func sanitize(s string) string {
 	}
 	return string(b)
 }
-
 
 func (s *scheduler) cleanAfter(job *compiler.JobPlan) {
 	for _, g := range job.CleanAfter {

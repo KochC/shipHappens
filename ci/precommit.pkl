@@ -1,0 +1,33 @@
+/// Ship Happens' pre-push gate. 🚢
+///
+/// A small, fast dogfooding pipeline the git pre-push hook runs before letting
+/// you push — vet + race tests only (no coverage gate; that stays in CI). It
+/// mirrors what CI checks first, so a green push is very likely a green CI.
+///
+///     ship run ci/precommit.pkl
+///
+/// Runs natively (no container) so it works anywhere Go is installed; the Go
+/// build/module caches are declared as step cache inputs for fast reruns.
+amends "../pkl/ship.pkl"
+
+import "../pkl/ship.pkl" as s
+
+name = "shiphappens pre-push"
+
+jobs {
+  ["vet"] = new s.Job {
+    steps {
+      new { id = "build"; run = "go build ./..."
+            cache = new s.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" } } }
+      new { id = "vet"; run = "go vet ./..." }
+    }
+  }
+
+  ["test"] = new s.Job {
+    needs { "vet" }
+    steps {
+      new { id = "race"; run = "go test -race ./..."
+            cache = new s.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" } } }
+    }
+  }
+}

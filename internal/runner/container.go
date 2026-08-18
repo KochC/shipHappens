@@ -5,7 +5,6 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/chris/shiphappens/internal/compiler"
@@ -25,10 +24,12 @@ type ContainerRunner struct {
 	Mounts      []string // extra "-v" volume specs, e.g. "ship-pio-cache:/root/.platformio"
 	Network     *bool    // nil=engine default; false=isolated (--network none); true=on
 	NetworkName string   // join a named network (e.g. a services network); overrides Network
-	// Allow is an egress host allow-list. When set, the runner exposes it to the
-	// step as $SHIP_ALLOW (advisory scoping in v1; full egress filtering is a
-	// roadmap item requiring an egress proxy).
+	// Allow is a job's egress host allow-list, retained for diagnostics.
 	Allow []string
+	// ProxyEnv, when set, routes the container's egress through Ship's filtering
+	// forward-proxy (HTTP_PROXY/HTTPS_PROXY/NO_PROXY) so only allow-listed hosts
+	// are reachable. This is real enforcement; SHIP_ALLOW is no longer used.
+	ProxyEnv map[string]string
 }
 
 // engineBinary maps an engine name to its CLI executable.
@@ -72,8 +73,13 @@ func (c ContainerRunner) buildArgs(step compiler.StepPlan, workdir string, env m
 	for _, m := range c.Mounts {
 		args = append(args, "-v", m)
 	}
-	if len(c.Allow) > 0 {
-		args = append(args, "-e", "SHIP_ALLOW="+strings.Join(c.Allow, ","))
+	if len(c.ProxyEnv) > 0 {
+		// Ensure the container can resolve the host running the proxy, then route
+		// its egress through the proxy (real allow-list enforcement).
+		args = append(args, "--add-host", "host.docker.internal:host-gateway")
+		for _, k := range sortedKeys(c.ProxyEnv) {
+			args = append(args, "-e", k+"="+c.ProxyEnv[k])
+		}
 	}
 	for _, k := range sortedKeys(env) {
 		args = append(args, "-e", k+"="+env[k])

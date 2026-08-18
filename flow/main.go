@@ -15,6 +15,7 @@ import (
 	"github.com/chris/shiphappens/internal/compiler"
 	"github.com/chris/shiphappens/internal/graph"
 	"github.com/chris/shiphappens/internal/logs"
+	"github.com/chris/shiphappens/internal/notify"
 	"github.com/chris/shiphappens/internal/runner"
 	"github.com/chris/shiphappens/internal/scheduler"
 	"github.com/chris/shiphappens/internal/tui"
@@ -37,6 +38,7 @@ func writePlan(p *compiler.RunPlan, path string) error {
 //	--graph            print the DAG and exit
 //	--job <id>         run only this job (and its dependencies); repeatable via comma
 //	--no-cache         disable step caching
+//
 // runOpts holds resolved run configuration (parsed from flags).
 type runOpts struct {
 	graphOnly   bool
@@ -249,6 +251,31 @@ func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 		ui.Start()
 	}
 
+	// Live notifications (best-effort).
+	notifier := buildNotifier(plan.Notify)
+	if notifier.Enabled() {
+		if notifier.WantStart() {
+			notifier.Send(ctx, notify.Event{
+				Workflow: plan.Name, Level: notify.Info.String(),
+				Title: plan.Name, Message: "run started",
+			})
+		}
+		if notifier.WantJob() {
+			base := observer
+			observer = func(e scheduler.Event) {
+				if base != nil {
+					base(e)
+				}
+				if e.Kind == scheduler.JobFinished && !e.OK {
+					notifier.Send(ctx, notify.Event{
+						Workflow: plan.Name, Level: notify.Failure.String(), Job: e.Job,
+						Title: plan.Name + ": job failed", Message: "job " + e.Job + " failed",
+					})
+				}
+			}
+		}
+	}
+
 	res := scheduler.Run(ctx, plan, scheduler.Options{
 		Workdir:  wd,
 		NoCache:  o.noCache,
@@ -265,6 +292,18 @@ func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 		logs.SetQuiet(false)
 	}
 
+	// Final-result notification.
+	if notifier.Enabled() {
+		lvl, msg := notify.Success, fmt.Sprintf("passed in %s (%d ran, %d cached, %d resumed)", res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
+		if res.Failed {
+			lvl, msg = notify.Failure, fmt.Sprintf("failed in %s (%d ran, %d cached, %d resumed)", res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
+		}
+		notifier.SendSync(ctx, notify.Event{
+			Workflow: plan.Name, Level: lvl.String(),
+			Title: plan.Name, Message: msg,
+		})
+	}
+
 	fmt.Println()
 	if res.Failed {
 		logs.Failure("✗ %s failed in %s  (%d ran, %d cached, %d resumed)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
@@ -276,6 +315,20 @@ func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 
 // preheatFn is the indirection point for warming (overridable in tests).
 var preheatFn = runner.Preheat
+
+// buildNotifier constructs a Notifier from the plan's notify spec (nil-safe).
+func buildNotifier(spec *compiler.NotifySpec) *notify.Notifier {
+	if spec == nil {
+		return nil
+	}
+	return notify.New(&notify.Spec{
+		Desktop: spec.Desktop,
+		Webhook: spec.Webhook,
+		Exec:    spec.Exec,
+		OnStart: spec.OnStart,
+		OnJob:   spec.OnJob,
+	})
+}
 
 // runPreheats warms images + caches concurrently. Advisory: logs failures but
 // never affects exit status.

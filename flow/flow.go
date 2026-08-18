@@ -15,6 +15,16 @@ type Workflow struct {
 	offlineByDefault bool
 	defaultAllow     []string
 	toolchain        map[string]string
+	notify           *Notify
+}
+
+// Notify configures live run notifications (desktop / webhook / exec sink).
+type Notify struct {
+	Desktop bool   // native desktop notifications
+	Webhook string // POST JSON to this URL
+	Exec    string // run a shell command; event via SHIP_NOTIFY_* env
+	OnStart bool   // notify when the run starts
+	OnJob   bool   // notify on each job failure (not just the final result)
 }
 
 // Preheat is warm-up work performed before the DAG runs: pulling a container
@@ -159,6 +169,9 @@ func (w *Workflow) Toolchain(tools map[string]string) *Workflow {
 	}
 	return w
 }
+
+// Notifications enables live run notifications (best-effort delivery).
+func (w *Workflow) Notifications(n Notify) *Workflow { w.notify = &n; return w }
 
 // RunsOn sets the execution backend label (default "native").
 func (j *Job) RunsOn(label string) *Job { j.runsOn = label; return j }

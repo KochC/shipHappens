@@ -59,10 +59,10 @@ func TestContainerBuildArgsEnvSortedDeterministic(t *testing.T) {
 
 func TestShQuote(t *testing.T) {
 	cases := map[string]string{
-		"echo hi":        "'echo hi'",
-		"it's":           `'it'\''s'`,
-		"":               "''",
-		"a 'b' c":        `'a '\''b'\'' c'`,
+		"echo hi": "'echo hi'",
+		"it's":    `'it'\''s'`,
+		"":        "''",
+		"a 'b' c": `'a '\''b'\'' c'`,
 	}
 	for in, want := range cases {
 		if got := shQuote(in); got != want {
@@ -71,10 +71,27 @@ func TestShQuote(t *testing.T) {
 	}
 }
 
-func TestContainerBuildArgsAllowList(t *testing.T) {
-	c := ContainerRunner{Image: "img", Allow: []string{"registry.npmjs.org", "github.com"}}
+func TestContainerBuildArgsProxyEnv(t *testing.T) {
+	c := ContainerRunner{Image: "img", Allow: []string{"github.com"}, ProxyEnv: map[string]string{
+		"HTTP_PROXY": "http://host.docker.internal:12345",
+		"NO_PROXY":   "localhost,127.0.0.1,::1",
+	}}
 	got := argsStr(c.buildArgs(compiler.StepPlan{Run: "npm ci"}, "/w", nil))
-	if !strings.Contains(got, "SHIP_ALLOW=registry.npmjs.org,github.com") {
-		t.Errorf("allow-list not exposed as env: %s", got)
+	if !strings.Contains(got, "HTTP_PROXY=http://host.docker.internal:12345") {
+		t.Errorf("proxy env not injected: %s", got)
+	}
+	if !strings.Contains(got, "--add-host host.docker.internal:host-gateway") {
+		t.Errorf("host-gateway add-host missing: %s", got)
+	}
+	if strings.Contains(got, "SHIP_ALLOW") {
+		t.Errorf("SHIP_ALLOW should no longer be used: %s", got)
+	}
+}
+
+func TestContainerBuildArgsNoProxyByDefault(t *testing.T) {
+	c := ContainerRunner{Image: "img"}
+	got := argsStr(c.buildArgs(compiler.StepPlan{Run: "echo hi"}, "/w", nil))
+	if strings.Contains(got, "HTTP_PROXY") || strings.Contains(got, "add-host") {
+		t.Errorf("no proxy expected without allow-list: %s", got)
 	}
 }

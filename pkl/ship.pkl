@@ -31,6 +31,9 @@ preheat: Listing<Preheat>?
 /// Supply-chain / network security policy for the whole workflow.
 security: Security?
 
+/// Live run notifications (desktop / webhook / exec). Best-effort delivery.
+notify: Notify?
+
 /// The jobs in the pipeline. Keys are job ids; the id is injected automatically.
 jobs: Mapping<String, Job>
 
@@ -41,6 +44,21 @@ class Security {
   offlineByDefault: Boolean = false
   /// Egress allow-list applied to jobs that opt into network without their own.
   defaultAllow: Listing<String>?
+}
+
+/// Live run notifications for the whole workflow. All delivery is best-effort:
+/// a failed notification never affects the build.
+class Notify {
+  /// Post native desktop notifications (macOS `osascript` / Linux `notify-send`).
+  desktop: Boolean = false
+  /// POST a JSON event to this URL on notify.
+  webhook: String?
+  /// Run this shell command on notify; the event is passed via `SHIP_NOTIFY_*` env.
+  exec: String?
+  /// Also notify when the run starts (not just on completion).
+  onStart: Boolean = false
+  /// Also notify on each job failure (not just the final result).
+  onJob: Boolean = false
 }
 
 /// A sidecar service container for a job (e.g. a database).
@@ -171,6 +189,15 @@ output {
       security = new Dynamic {
         when (module.security.offlineByDefault) { ["offlineByDefault"] = true }
         when (module.security.defaultAllow != null) { ["defaultAllow"] = module.security.defaultAllow }
+      }
+    }
+    when (module.notify != null) {
+      notify = new Dynamic {
+        when (module.notify.desktop) { ["desktop"] = true }
+        when (module.notify.webhook != null) { ["webhook"] = module.notify.webhook }
+        when (module.notify.exec != null) { ["exec"] = module.notify.exec }
+        when (module.notify.onStart) { ["onStart"] = true }
+        when (module.notify.onJob) { ["onJob"] = true }
       }
     }
     when (module.preheat != null) {

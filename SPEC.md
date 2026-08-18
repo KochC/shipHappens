@@ -443,10 +443,14 @@ A **local-first security posture** that a hosted runner cannot easily match:
   egress by default. *Genuinely enforced* via the container engine, not
   advisory.
 - **Egress allow-lists** — a job's `allow: [host, …]` (or the workflow
-  `defaultAllow`) opts into network and scopes intended egress to those hosts.
-  The list is exposed to the step as `$SHIP_ALLOW`; full packet-level egress
-  filtering (via an egress proxy) is a roadmap item, but the allow-list is the
-  declared, reviewable contract.
+  `defaultAllow`) opts into network and scopes egress to those hosts.
+  **Genuinely enforced**, not advisory: Ship starts a host-side filtering
+  forward-proxy (`ship-egress`) for the job and routes the container's egress
+  through it via `HTTP_PROXY`/`HTTPS_PROXY` (with `--add-host
+  host.docker.internal:host-gateway`). The proxy permits plain HTTP (by Host)
+  and HTTPS (by CONNECT target); any host not on the list is refused with
+  `403`. Entries may be exact (`api.github.com`) or wildcard (`*.github.com`,
+  which also covers the apex). Blocked hosts are surfaced in the job log.
 - **Input sanitizing** — `flow.Sanitize(s)` neutralizes shell command-injection
   vectors (`` ` ``, `$`, `\`, control chars; newlines → spaces) in untrusted
   values (PR titles, commit messages), and `flow.SafeIdentifier(s)` validates
@@ -527,6 +531,11 @@ glob walks.
   step, per-job elapsed timers, and a running summary. Suppresses streaming logs
   (quiet mode) while active.
 - **Summary line:** `✓/✗ <name> in <dur> (N ran, N cached, N resumed)`.
+- **Live notifications** (`notify:`): best-effort delivery of run events to the
+  **desktop** (macOS `osascript` / Linux `notify-send`), a **webhook** (JSON
+  POST), or an arbitrary **exec** command (event via `SHIP_NOTIFY_*` env).
+  Fires on the final result, and optionally on run start (`onStart`) and on each
+  job failure (`onJob`). A failed notification never affects the build.
 - **MCP server** (`ship-mcp`): a Model Context Protocol server over stdio
   (JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`) so agents/IDEs can
   drive pipelines. Tools: `ship_validate`, `ship_graph`, `ship_run` (starts a
@@ -559,6 +568,10 @@ glob walks.
 - Zero external runtime dependencies (standard library only).
 - `make integration` runs container-backed tests behind a `//go:build docker`
   tag; they skip cleanly when no engine is present.
+- **Version-controlled git hooks** (`.githooks/`, opt in via `make hooks`):
+  a fast **pre-commit** (`gofmt` + `go build` + `go vet`) and a **pre-push**
+  that dogfoods the tool by running `ship run ci/precommit.pkl` (vet + race
+  tests). The coverage gate remains in CI.
 
 ---
 

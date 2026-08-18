@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/chris/shiphappens/internal/compiler"
@@ -95,4 +96,53 @@ func TestRunnerForOfflineByDefault(t *testing.T) {
 		t.Fatalf("services network should be used, got %+v", cr)
 	}
 	_ = no
+}
+
+func TestStartEgress(t *testing.T) {
+	s := &scheduler{opts: Options{Engine: "docker"}}
+
+	// Native job → no proxy.
+	if ep, env, err := s.startEgress(context.Background(), &compiler.JobPlan{ID: "n"}); ep != nil || env != nil || err != nil {
+		t.Fatalf("native job should get no proxy: %v %v %v", ep, env, err)
+	}
+
+	// Container job without allow-list → no proxy.
+	if ep, _, _ := s.startEgress(context.Background(), &compiler.JobPlan{ID: "c", Image: "img"}); ep != nil {
+		t.Fatal("container without allow-list should get no proxy")
+	}
+
+	// Container job WITH allow-list → real proxy + proxy env.
+	ep, env, err := s.startEgress(context.Background(), &compiler.JobPlan{
+		ID: "c", Image: "img", Allow: []string{"github.com"},
+	})
+	if err != nil || ep == nil {
+		t.Fatalf("allow-list job should start a proxy: %v %v", ep, err)
+	}
+	defer ep.Stop()
+	if !strings.HasPrefix(env["HTTP_PROXY"], "http://host.docker.internal:") {
+		t.Errorf("proxy env not set: %v", env)
+	}
+}
+
+func TestWithProxyEnv(t *testing.T) {
+	env := map[string]string{"HTTP_PROXY": "http://host:1234"}
+
+	// Empty env → runner unchanged.
+	base := runner.ContainerRunner{Image: "img"}
+	if got := withProxyEnv(base, nil); got.(runner.ContainerRunner).ProxyEnv != nil {
+		t.Error("nil env should not attach ProxyEnv")
+	}
+
+	// Container runner → env attached.
+	got := withProxyEnv(base, env)
+	cr, ok := got.(runner.ContainerRunner)
+	if !ok || cr.ProxyEnv["HTTP_PROXY"] != "http://host:1234" {
+		t.Fatalf("ProxyEnv not attached: %+v", got)
+	}
+
+	// Non-container runner → returned as-is (no panic).
+	nat := runner.NativeRunner{}
+	if _, ok := withProxyEnv(nat, env).(runner.NativeRunner); !ok {
+		t.Error("native runner should pass through unchanged")
+	}
 }

@@ -543,6 +543,55 @@ StepStarted) into an in-memory snapshot.
 
 ---
 
+## 13.6 Live notifications
+
+Get told when a run finishes (and optionally when it starts or a job fails)
+without watching the terminal. Configure `notify` at the workflow level:
+
+```pkl
+notify = new Notify {
+  desktop = true                       // macOS osascript / Linux notify-send
+  webhook = "https://hooks.example/ci" // POST a JSON event
+  exec = "say build $SHIP_NOTIFY_LEVEL" // run any command; event via SHIP_NOTIFY_*
+  onStart = true                       // also notify when the run starts
+  onJob = true                         // also notify on each job failure
+}
+```
+
+Go DSL: `wf.Notifications(flow.Notify{Desktop: true, OnJob: true})`.
+
+Delivery is **best-effort** — a failed notification never affects the build.
+The `exec` sink receives `SHIP_NOTIFY_WORKFLOW`, `SHIP_NOTIFY_TITLE`,
+`SHIP_NOTIFY_MESSAGE`, `SHIP_NOTIFY_LEVEL` (`info`/`success`/`failure`), and
+`SHIP_NOTIFY_JOB`.
+
+---
+
+## 13.7 Real egress filtering
+
+A container job that opts into the network can be pinned to an allow-list — and
+it's **actually enforced**, not just documented:
+
+```pkl
+security = new Security { offlineByDefault = true }
+jobs {
+  ["deps"] = new Job {
+    image = "node:20"
+    allow = new Listing { "registry.npmjs.org"; "*.github.com" }
+    steps { new Step { id = "ci"; run = "npm ci" } }
+  }
+}
+```
+
+Ship starts a filtering forward-proxy (`ship-egress`) for the job and routes the
+container's egress through it (`HTTP_PROXY`/`HTTPS_PROXY`). Standard tooling
+(curl, git, go, npm, pip, apt) honors those, so any host **not** on the list is
+refused with `403` — `npm ci` reaching `evil.example` simply fails. Entries are
+exact or wildcard (`*.github.com` also matches the apex). Blocked hosts are
+listed in the job log.
+
+---
+
 ## 14. Full Pkl schema reference
 
 Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
@@ -553,8 +602,28 @@ Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
 |---|---|---|
 | `name` | `String` | Workflow name (required). |
 | `vars` | `Mapping<String,String>?` | Workflow variables, merged into every job's env. |
+| `toolchain` | `Mapping<String,String>?` | Pinned tool versions (mise-backed) for native jobs. |
+| `security` | `Security?` | Supply-chain / network policy (`offlineByDefault`, `defaultAllow`). |
+| `notify` | `Notify?` | Live run notifications (`desktop`, `webhook`, `exec`, `onStart`, `onJob`). |
 | `preheat` | `Listing<Preheat>?` | Warm-up work run concurrently before the DAG. |
 | `jobs` | `Mapping<String,Job>` | Jobs by id (required). |
+
+### `Security`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `offlineByDefault` | `Boolean` | `false` | Container jobs run with `--network none` unless they opt in. |
+| `defaultAllow` | `Listing<String>?` | — | Egress allow-list applied to jobs that opt into network without their own. |
+
+### `Notify`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `desktop` | `Boolean` | `false` | Native desktop notifications (macOS `osascript` / Linux `notify-send`). |
+| `webhook` | `String?` | — | POST a JSON event to this URL. |
+| `exec` | `String?` | — | Run a shell command; event passed via `SHIP_NOTIFY_*` env. |
+| `onStart` | `Boolean` | `false` | Also notify when the run starts. |
+| `onJob` | `Boolean` | `false` | Also notify on each job failure. |
 
 ### `Job`
 

@@ -139,7 +139,11 @@ Implemented since the initial analysis:
 - **`services:` sidecar containers**: start on a shared network, health-wait,
   reachable by name, torn down after the job.
 - **Supply-chain security**: `OfflineByDefault()`, per-job `Allow(...)` egress
-  allow-lists, and `Sanitize`/`SafeIdentifier` input helpers.
+  allow-lists that are **genuinely enforced** by a filtering forward-proxy
+  (`ship-egress`) — non-allowed hosts get a `403`, not just a warning — and
+  `Sanitize`/`SafeIdentifier` input helpers.
+- **Live notifications** (`notify:`): desktop / webhook / exec sinks on run
+  start, job failure, and final result — GHA has nothing built in.
 - **Step sub-graphs**: step-level `needs` (a DAG within a job, parallel where
   possible) and `onFailure` handler steps — GHA has no equivalent (its steps are
   strictly sequential).

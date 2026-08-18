@@ -8,9 +8,17 @@ COVER_PROFILE := coverage.out
 # compiler package (pure type/IR definitions) — none have unit tests by design.
 PKGS := $(shell go list ./... | grep -vE '/workflows/|/demos/|/cmd/|/internal/compiler')
 
-.PHONY: all build ship ship-mcp install test vet race cover cover-html cover-check integration pkl-test clean
+.PHONY: all build ship ship-mcp ship-egress install hooks test vet race cover cover-html cover-check integration pkl-test clean
 
 all: vet test
+
+# Opt into the version-controlled git hooks (.githooks): a fast pre-commit
+# (gofmt + build + vet) and a pre-push that dogfoods `ship run ci/precommit.pkl`.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "✓ git hooks enabled (core.hooksPath=.githooks)"
+	@echo "  pre-commit: gofmt + go build + go vet"
+	@echo "  pre-push:   ship run ci/precommit.pkl (vet + race tests)"
 
 build:
 	go build ./...
@@ -23,6 +31,10 @@ ship:
 # Build the MCP server binary.
 ship-mcp:
 	go build -ldflags "-X main.version=$(VERSION)" -o ship-mcp ./cmd/ship-mcp
+
+# Build the egress-filtering proxy binary.
+ship-egress:
+	go build -ldflags "-X main.version=$(VERSION)" -o ship-egress ./cmd/ship-egress
 
 # Install the ship CLI into GOBIN / $GOPATH/bin.
 install:
@@ -87,5 +99,5 @@ pkl-test:
 	go test -tags=pkl -run Integration ./internal/planfile/ -v
 
 clean:
-	rm -f $(COVER_PROFILE) coverage.html ship ship-mcp
+	rm -f $(COVER_PROFILE) coverage.html ship ship-mcp ship-egress
 	rm -rf dist
