@@ -8,10 +8,12 @@ import (
 
 // Workflow is a pipeline definition being built by the DSL.
 type Workflow struct {
-	Name    string
-	vars    map[string]string
-	jobs    []*Job
-	preheat []Preheat
+	Name             string
+	vars             map[string]string
+	jobs             []*Job
+	preheat          []Preheat
+	offlineByDefault bool
+	defaultAllow     []string
 }
 
 // Preheat is warm-up work performed before the DAG runs: pulling a container
@@ -38,7 +40,10 @@ type Job struct {
 	overlay         bool
 	timeoutSec      int
 	continueOnError bool
+	ifExpr          string
 	matrix          map[string][]string
+	services        []Service
+	allow           []string
 	steps           []*Step
 	line            string // "file.go:NN" of the .Job(...) call site
 }
@@ -48,7 +53,15 @@ type secretRef struct {
 	fromEnv string
 }
 
-// Step is one command within a job.
+// Service is a sidecar container for a job (declared via Job.Service).
+type Service struct {
+	Name    string            // hostname the job's steps use to reach it
+	Image   string            // container image
+	Env     map[string]string // container env
+	Ports   []string          // host:container publishes
+	Health  string            // shell command run in the service to test readiness
+	Timeout int               // readiness timeout seconds (default 30)
+}
 type Step struct {
 	name            string
 	run             string
@@ -60,6 +73,7 @@ type Step struct {
 	retries         int
 	retryBackoffSec int
 	continueOnError bool
+	ifExpr          string
 }
 
 type cacheSpec struct {
@@ -110,6 +124,18 @@ func (w *Workflow) Preheat(p Preheat) *Workflow {
 
 // Preheats returns the registered preheat specs.
 func (w *Workflow) Preheats() []Preheat { return w.preheat }
+
+// OfflineByDefault makes container jobs run with no network unless they opt in
+// (Job.Network(true) or Job.Allow(...)). Recommended: most build/test steps need
+// no network, so this closes the supply-chain egress by default.
+func (w *Workflow) OfflineByDefault() *Workflow { w.offlineByDefault = true; return w }
+
+// AllowHosts sets a default egress allow-list applied to jobs that opt into
+// network without their own Allow list (e.g. your package registry).
+func (w *Workflow) AllowHosts(hosts ...string) *Workflow {
+	w.defaultAllow = append(w.defaultAllow, hosts...)
+	return w
+}
 
 // RunsOn sets the execution backend label (default "native").
 func (j *Job) RunsOn(label string) *Job { j.runsOn = label; return j }
@@ -188,6 +214,36 @@ func (j *Job) Timeout(seconds int) *Job { j.timeoutSec = seconds; return j }
 // ContinueOnError marks the job non-fatal: if it fails, the run is not failed
 // and siblings/dependents still run (the job is treated as satisfied).
 func (j *Job) ContinueOnError() *Job { j.continueOnError = true; return j }
+
+// If sets a conditional expression; the job is skipped when it evaluates false.
+// Expressions may reference env.X, vars.X, needs.<job>.result,
+// outputs.<job>.<key>, and success()/failure()/always().
+func (j *Job) If(expr string) *Job { j.ifExpr = expr; return j }
+
+// StepIf sets a conditional on the most recently added step (skipped when false;
+// may reference outputs.self.<key> for the current job's captured outputs).
+func (j *Job) StepIf(expr string) *Job {
+	if s := j.lastStep(); s != nil {
+		s.ifExpr = expr
+	}
+	return j
+}
+
+// Service attaches a sidecar container to the job (e.g. a database). Container
+// jobs reach it by its Name on a shared network; started before the job's steps
+// and torn down after.
+func (j *Job) Service(svc Service) *Job {
+	j.services = append(j.services, svc)
+	return j
+}
+
+// Allow opts the job into network access but restricts egress to the given
+// hosts (an allow-list). Under OfflineByDefault this is how a job that needs a
+// registry or API declares exactly what it may reach.
+func (j *Job) Allow(hosts ...string) *Job {
+	j.allow = append(j.allow, hosts...)
+	return j
+}
 
 // Matrix expands this job over the cartesian product of the given dimensions:
 // one job per combination, with the combination's values exposed as env vars

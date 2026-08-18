@@ -205,6 +205,7 @@ All entry points accept these flags:
 | `--no-cache` | Disable step caching (and resume). |
 | `--resume` | Skip jobs whose fingerprint matches a prior success; restore their outputs. |
 | `--engine <docker\|podman\|apple>` | Container engine for image jobs (default `docker`). |
+| `--max-parallel <N>` | Max jobs run concurrently (0 = number of CPUs). |
 | `--mount <spec>` | Extra container volume (repeatable), e.g. `vol:/root/.cache`. |
 | `--var <K=V>` | Set/override a workflow variable (repeatable). |
 | `--no-preheat` | Skip preheating. |
@@ -391,6 +392,55 @@ wf.Job("release").
   - *Job:* a failing job marked `ContinueOnError` does not fail the run or cancel
     siblings, and its dependents still run (the job is treated as satisfied, not
     failed). This is the opt-out from fail-fast.
+
+### 6.7 Conditionals, outputs & data flow
+
+- **Expression evaluator** (`internal/expr`) — a small, sandboxed language:
+  string/number/bool literals, `== != && || !`, parentheses, identifier paths
+  (`env.X`, `vars.X`, `needs.<job>.result`, `outputs.<job>.<key>`,
+  `outputs.self.<key>`), and `success()`/`failure()`/`always()`. Missing
+  identifiers are the empty string (falsey). No I/O or side effects.
+- **`if:` conditionals** — a job or step with a false `if` is **skipped**
+  (skipped jobs are treated as satisfied for dependents; an invalid expression
+  fails the job).
+- **Step & job outputs** — a step appends `key=value` (or a `key<<EOF … EOF`
+  heredoc) to the file named by **`$SHIP_OUTPUT`**; the scheduler captures these
+  as the job's outputs. Dependents receive them as environment variables
+  `$OUTPUTS_<JOB>_<KEY>` (uppercased, non-alnum → `_`) and can reference
+  `outputs.<job>.<key>` in `if:`. This is the data-flow channel between jobs.
+
+### 6.8 Services (sidecars)
+
+A job may declare **services** (sidecar containers, e.g. a database). Before the
+job's steps run, the scheduler creates a dedicated network, starts each service
+on it (reachable from container steps by its `name`), optionally waits for a
+`health` command to pass (with a timeout), and tears everything down when the
+job completes. Ports may be published to the host for native access.
+
+### 6.9 Supply-chain / network security
+
+A **local-first security posture** that a hosted runner cannot easily match:
+
+- **Offline by default** — `security.offlineByDefault` makes container jobs run
+  with **`--network none`** unless they explicitly opt in (`network: true` or a
+  non-empty `allow` list). Most build/test steps need no network; this closes
+  egress by default. *Genuinely enforced* via the container engine, not
+  advisory.
+- **Egress allow-lists** — a job's `allow: [host, …]` (or the workflow
+  `defaultAllow`) opts into network and scopes intended egress to those hosts.
+  The list is exposed to the step as `$SHIP_ALLOW`; full packet-level egress
+  filtering (via an egress proxy) is a roadmap item, but the allow-list is the
+  declared, reviewable contract.
+- **Input sanitizing** — `flow.Sanitize(s)` neutralizes shell command-injection
+  vectors (`` ` ``, `$`, `\`, control chars; newlines → spaces) in untrusted
+  values (PR titles, commit messages), and `flow.SafeIdentifier(s)` validates
+  branch/tag-like tokens. The recommended pattern remains passing untrusted
+  values via env vars (referenced as `$VAR`, never interpolated); sanitizing is
+  defense-in-depth.
+
+Precedence for a job's effective network mode: explicit `network=false` (hard
+isolation) > job `allow` list > explicit `network=true` > `offlineByDefault`
+(→ none) > policy `defaultAllow` > engine default.
 
 ---
 

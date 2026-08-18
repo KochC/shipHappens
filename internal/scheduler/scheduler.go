@@ -14,10 +14,13 @@ import (
 
 	"github.com/chris/shiphappens/internal/cache"
 	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/chris/shiphappens/internal/expr"
 	"github.com/chris/shiphappens/internal/graph"
 	"github.com/chris/shiphappens/internal/logs"
+	"github.com/chris/shiphappens/internal/outputs"
 	"github.com/chris/shiphappens/internal/runner"
 	"github.com/chris/shiphappens/internal/secrets"
+	"github.com/chris/shiphappens/internal/security"
 )
 
 // Options configure a run.
@@ -80,8 +83,10 @@ type scheduler struct {
 	done     map[string]bool
 	failed   map[string]bool
 	inFlight map[string]bool
-	fps      map[string]string // jobID -> computed fingerprint
-	skipped  map[string]bool   // jobID -> resumed (skipped) this run
+	fps      map[string]string            // jobID -> computed fingerprint
+	skipped  map[string]bool              // jobID -> resumed (skipped) this run
+	jobOut   map[string]map[string]string // jobID -> captured outputs
+	results  map[string]string            // jobID -> "success"|"failure"|"skipped"
 	anyFail  bool
 	ranCnt   int
 	cacheCnt int
@@ -109,6 +114,8 @@ func Run(ctx context.Context, plan *compiler.RunPlan, opts Options) Result {
 		inFlight: map[string]bool{},
 		fps:      map[string]string{},
 		skipped:  map[string]bool{},
+		jobOut:   map[string]map[string]string{},
+		results:  map[string]string{},
 		sem:      make(chan struct{}, opts.MaxPar),
 		resolver: secrets.New(),
 	}
@@ -187,16 +194,39 @@ func (s *scheduler) depsState(id string) (ready, blocked bool) {
 
 // runnerFor returns the appropriate runner for a job: a ContainerRunner when
 // the job declares an image, otherwise the NativeRunner.
-func (s *scheduler) runnerFor(job *compiler.JobPlan) runner.Runner {
+func (s *scheduler) runnerFor(job *compiler.JobPlan, netName string) runner.Runner {
 	if job.Image != "" {
+		// Resolve the effective network policy (offline-by-default + allow-list).
+		var policy *compiler.SecurityPolicy
+		if s.plan != nil {
+			policy = s.plan.Security
+		}
+		dec := security.Resolve(policy, job)
+		net := job.Network
+		if netName == "" { // services network overrides policy (services need net)
+			switch dec.Mode {
+			case security.NetNone:
+				no := false
+				net = &no
+			case security.NetDefault:
+				yes := true
+				net = &yes
+			case security.NetAllow:
+				yes := true
+				net = &yes // allow-list opts into network (egress scoping is best-effort, see docs)
+			}
+		}
 		if job.Overlay {
 			upper := filepath.Join(s.opts.Workdir, ".ship-overlay", job.ID)
 			return runner.OverlayRunner{
 				Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts,
-				Network: job.Network, UpperHost: upper,
+				Network: net, UpperHost: upper,
 			}
 		}
-		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts, Network: job.Network}
+		return runner.ContainerRunner{
+			Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts,
+			Network: net, NetworkName: netName, Allow: dec.Allow,
+		}
 	}
 	return runner.NativeRunner{}
 }
@@ -279,20 +309,50 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 		}
 	}
 
-	run := s.runnerFor(job)
+	// Start sidecar services (if any) on a dedicated network the job container
+	// joins. Torn down when the job completes.
+	var svcNet string
+	if len(job.Services) > 0 {
+		svcOut := logs.Prefixed(job.ID + ":services")
+		svcs, net, err := runner.StartServices(ctx, s.opts.Engine, job.ID, job.Services, svcOut)
+		if err != nil {
+			logs.Failure("✗ [%s] services failed: %v", job.ID, err)
+			svcs.Stop(context.Background())
+			s.finishFailed(ctx, job)
+			return
+		}
+		svcNet = net
+		defer svcs.Stop(context.Background())
+	}
+
+	run := s.runnerFor(job, svcNet)
+
+	// Conditional: skip the job when its `if` evaluates false. A skipped job is
+	// treated as satisfied (not failed); dependents still run.
+	if job.If != "" {
+		ok, err := s.evalIf(job.If, job, nil)
+		if err != nil {
+			logs.Failure("✗ [%s] invalid if: %v", job.ID, err)
+			s.finishFailed(ctx, job)
+			return
+		}
+		if !ok {
+			logs.Info("◌ [%s] skipped (if=false)", job.ID)
+			s.mu.Lock()
+			s.done[job.ID] = true
+			s.results[job.ID] = "skipped"
+			s.mu.Unlock()
+			s.emit(Event{Kind: JobSkipped, Job: job.ID})
+			s.launch(ctx)
+			return
+		}
+	}
 
 	// Resolve effective env (workflow vars + job env + secrets) and fail fast
 	// if any required secret is missing from the host environment.
 	if missing := s.resolver.Missing(job); len(missing) > 0 {
 		logs.Failure("✗ [%s] missing required secret(s): %v", job.ID, missing)
-		s.mu.Lock()
-		s.done[job.ID] = true
-		s.failed[job.ID] = true
-		s.anyFail = true
-		s.cancel()
-		s.mu.Unlock()
-		s.emit(Event{Kind: JobFinished, Job: job.ID, OK: false})
-		s.launch(ctx)
+		s.finishFailed(ctx, job)
 		return
 	}
 	effEnv, secretVals := s.resolver.Effective(s.plan.Vars, job.Env, job)
@@ -309,6 +369,8 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 			cacheEnv[sec.Name] = secrets.Fingerprint(v)
 		}
 	}
+	// Expose upstream job outputs to steps as env: OUTPUTS_<JOB>_<KEY>.
+	s.injectUpstreamOutputs(job, effEnv)
 
 	out := logs.MaskedPrefixed(job.ID, masker.Mask)
 	jobFailed := false
@@ -323,12 +385,48 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 		defer cancelJob()
 	}
 
+	// Set up the per-job output file ($SHIP_OUTPUT). Steps append key=value
+	// lines; the scheduler accumulates them into this job's outputs.
+	outFile, outEnvVal := s.outputFile(job)
+	if outFile != "" {
+		defer os.Remove(outFile)
+	}
+	captured := map[string]string{}
+
 	for _, step := range job.Steps {
-		cached, ok := s.execStep(jobCtx, run, job, step, effEnv, cacheEnv, out)
+		// Step conditional.
+		if step.If != "" {
+			ok, err := s.evalIf(step.If, job, captured)
+			if err != nil {
+				logs.Step(job.ID, step.ID, fmt.Sprintf("invalid if: %v", err), false, false)
+				jobFailed = true
+				break
+			}
+			if !ok {
+				logs.Step(job.ID, step.ID, "skipped (if=false)", true, false)
+				continue
+			}
+		}
+
+		stepEnv := effEnv
+		if outEnvVal != "" {
+			stepEnv = withOutput(effEnv, outEnvVal)
+		}
+
+		cached, ok := s.execStep(jobCtx, run, job, step, stepEnv, cacheEnv, out)
+
+		// Capture any outputs the step wrote.
+		if outFile != "" {
+			if kv, _ := outputs.Parse(outFile); len(kv) > 0 {
+				for k, v := range kv {
+					captured[k] = v
+				}
+			}
+		}
+
 		if cached || ok {
 			continue
 		}
-		// Step failed. continue-on-error at step level lets the job proceed.
 		if step.ContinueOnError {
 			logs.Step(job.ID, step.ID, "failed (continue-on-error)", false, false)
 			continue
@@ -345,6 +443,14 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	s.done[job.ID] = true
 	if fp != "" {
 		s.fps[job.ID] = fp
+	}
+	if len(captured) > 0 {
+		s.jobOut[job.ID] = captured
+	}
+	if jobFailed {
+		s.results[job.ID] = "failure"
+	} else {
+		s.results[job.ID] = "success"
 	}
 	if jobFatal {
 		s.failed[job.ID] = true
@@ -368,7 +474,148 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	s.launch(ctx)
 }
 
-// cleanAfter deletes the job's CleanAfter globs relative to the workdir.
+// finishFailed marks a job failed (fail-fast), for the missing-secret and
+// invalid-if paths.
+func (s *scheduler) finishFailed(ctx context.Context, job *compiler.JobPlan) {
+	s.mu.Lock()
+	s.done[job.ID] = true
+	s.failed[job.ID] = true
+	s.results[job.ID] = "failure"
+	s.anyFail = true
+	s.cancel()
+	s.mu.Unlock()
+	s.emit(Event{Kind: JobFinished, Job: job.ID, OK: false})
+	s.launch(ctx)
+}
+
+// evalIf evaluates an `if` expression for a job/step. stepOutputs, when non-nil,
+// exposes the current job's own captured outputs as `outputs.self.<key>`.
+func (s *scheduler) evalIf(src string, job *compiler.JobPlan, stepOutputs map[string]string) (bool, error) {
+	s.mu.Lock()
+	// snapshot for a consistent view
+	results := map[string]string{}
+	for k, v := range s.results {
+		results[k] = v
+	}
+	jobOut := map[string]map[string]string{}
+	for j, m := range s.jobOut {
+		cp := map[string]string{}
+		for k, v := range m {
+			cp[k] = v
+		}
+		jobOut[j] = cp
+	}
+	anyFail := s.anyFail
+	s.mu.Unlock()
+
+	ctx := expr.Context{
+		Success: !anyFail,
+		Failure: anyFail,
+		Lookup: func(path []string) (any, bool) {
+			switch path[0] {
+			case "env":
+				if len(path) == 2 {
+					if v, ok := job.Env[path[1]]; ok {
+						return v, true
+					}
+					if v, ok := s.plan.Vars[path[1]]; ok {
+						return v, true
+					}
+				}
+			case "vars":
+				if len(path) == 2 {
+					if v, ok := s.plan.Vars[path[1]]; ok {
+						return v, true
+					}
+				}
+			case "needs":
+				// needs.<job>.result
+				if len(path) == 3 && path[2] == "result" {
+					if r, ok := results[path[1]]; ok {
+						return r, true
+					}
+				}
+			case "outputs":
+				// outputs.<job>.<key>  and  outputs.self.<key>
+				if len(path) == 3 {
+					if path[1] == "self" && stepOutputs != nil {
+						if v, ok := stepOutputs[path[2]]; ok {
+							return v, true
+						}
+					}
+					if m, ok := jobOut[path[1]]; ok {
+						if v, ok := m[path[2]]; ok {
+							return v, true
+						}
+					}
+				}
+			}
+			return nil, false
+		},
+	}
+	return expr.Eval(src, ctx)
+}
+
+// injectUpstreamOutputs exposes dependency job outputs to steps as env vars
+// named OUTPUTS_<JOB>_<KEY> (job/key uppercased, non-alnum → underscore).
+func (s *scheduler) injectUpstreamOutputs(job *compiler.JobPlan, env map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, dep := range job.Needs {
+		for k, v := range s.jobOut[dep] {
+			env[envKey("OUTPUTS_"+dep+"_"+k)] = v
+		}
+	}
+}
+
+// outputFile returns (hostPath, envValue) for a job's $SHIP_OUTPUT file. The
+// host path is under the workdir so container jobs can write to it via the bind
+// mount; envValue is the path as the step sees it (container path for image jobs).
+func (s *scheduler) outputFile(job *compiler.JobPlan) (hostPath, envVal string) {
+	rel := ".ship-output-" + sanitize(job.ID)
+	hostPath = filepath.Join(s.opts.Workdir, rel)
+	_ = os.WriteFile(hostPath, nil, 0o644)
+	if job.Image != "" {
+		return hostPath, "/ship/work/" + rel
+	}
+	return hostPath, hostPath
+}
+
+// withOutput returns a copy of env with SHIP_OUTPUT set.
+func withOutput(env map[string]string, path string) map[string]string {
+	cp := make(map[string]string, len(env)+1)
+	for k, v := range env {
+		cp[k] = v
+	}
+	cp["SHIP_OUTPUT"] = path
+	return cp
+}
+
+func envKey(s string) string {
+	b := []byte(s)
+	for i := range b {
+		c := b[i]
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - 32
+		} else if !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			b[i] = '_'
+		}
+	}
+	return string(b)
+}
+
+func sanitize(s string) string {
+	b := []byte(s)
+	for i := range b {
+		c := b[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			b[i] = '_'
+		}
+	}
+	return string(b)
+}
+
+
 func (s *scheduler) cleanAfter(job *compiler.JobPlan) {
 	for _, g := range job.CleanAfter {
 		matches, _ := filepath.Glob(filepath.Join(s.opts.Workdir, g))

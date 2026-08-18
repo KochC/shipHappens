@@ -70,3 +70,11 @@ func TestShQuote(t *testing.T) {
 		}
 	}
 }
+
+func TestContainerBuildArgsAllowList(t *testing.T) {
+	c := ContainerRunner{Image: "img", Allow: []string{"registry.npmjs.org", "github.com"}}
+	got := argsStr(c.buildArgs(compiler.StepPlan{Run: "npm ci"}, "/w", nil))
+	if !strings.Contains(got, "SHIP_ALLOW=registry.npmjs.org,github.com") {
+		t.Errorf("allow-list not exposed as env: %s", got)
+	}
+}

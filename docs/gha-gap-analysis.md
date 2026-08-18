@@ -26,8 +26,8 @@ future "server/remote" milestone, not the core runner.
 | `needs` (DAG) | ✅ | topo order, subgraph, dependents all implemented |
 | Parallel execution | ✅ | bounded by `NumCPU` |
 | `strategy.matrix` (fan-out) | ✅ | `Matrix(dims)`; compile-time cartesian expansion into N jobs |
-| `max-parallel` | 🟡 | `Options.MaxPar` exists but no CLI flag |
-| Job-level `if:` (conditional) | ❌ | only dependency-failure skipping + resume/changed filtering |
+| `max-parallel` | ✅ | `--max-parallel N` flag |
+| Job-level `if:` (conditional) | ✅ | `If(expr)` / `StepIf(expr)` with an expression evaluator |
 
 ## 3. Steps
 
@@ -47,7 +47,7 @@ future "server/remote" milestone, not the core runner.
 |---|---|---|
 | Hosted/self-hosted runners | ✅ (local) | native + container |
 | Container jobs | ✅ | docker/podman/apple engines |
-| `services:` sidecar containers | ❌ | preheat pulls/warms but no persistent services |
+| `services:` sidecar containers | ✅ | `Service{...}`: start, health-wait, network-attach, teardown |
 | Container networking control | ✅ | `Offline()`/`Network()` → `--network none` |
 | Volume mounts | ✅ | `--mount` |
 | `runs-on` labels | 🟡 | stored but runner chosen by `Image` only |
@@ -59,8 +59,8 @@ future "server/remote" milestone, not the core runner.
 |---|---|---|
 | Workflow/job env & vars | ✅ | precedence: vars < job env < secrets |
 | Secrets | ✅ | host-sourced, fail-fast, masked, excluded from plan, fingerprinted |
-| `${{ }}` expressions | ❌ | no evaluator |
-| Contexts (`github`, `env`, `steps`, `needs`, `matrix`) | ❌ | no context objects |
+| expressions (env/vars/outputs/needs, ==,!=,&&,\|\|,!, success/failure/always) | ✅ | `internal/expr` evaluator (own syntax, not `${{ }}`) |
+| Contexts (`env`, `vars`, `outputs`, `needs.result`) | 🟡 | available in `if:`; no `github`/`matrix` context objects |
 
 ## 6. Caching & artifacts
 
@@ -79,7 +79,7 @@ future "server/remote" milestone, not the core runner.
 | Parallelism | ✅ | |
 | Fail-fast | ✅ | unconditional |
 | `fail-fast: false` opt-out | ✅ | job `ContinueOnError()` makes a job non-fatal |
-| `concurrency:` groups / cancel-in-progress | ❌ | — |
+| `concurrency:` groups / cancel-in-progress | ❌ | roadmap |
 | `timeout` (job/step) | ✅ | `Timeout(s)` / `StepTimeout(s)`; ctx cancellation |
 | Retries | ✅ | per-step `Retry(n, backoff)` |
 
@@ -96,8 +96,8 @@ future "server/remote" milestone, not the core runner.
 
 | GHA feature | Ship Happens | Notes |
 |---|---|---|
-| Step outputs (`$GITHUB_OUTPUT`) | ❌ | `StepResult` has no captured outputs |
-| Job outputs → `needs.<j>.outputs.<k>` | ❌ | `Job.Outputs` are file globs, not named values |
+| Step outputs (`$SHIP_OUTPUT`) | ✅ | steps write key=value; captured per job |
+| Job outputs → dependents | ✅ | exposed as `$OUTPUTS_<JOB>_<KEY>` env + `outputs.<job>.<key>` in `if:` |
 | Exit status | ✅ | 0/1 + `Result{Failed,Ran,Cached,Resumed}` |
 | SCM status checks / PR reporting | ❌ | no SCM integration |
 
@@ -118,10 +118,31 @@ future "server/remote" milestone, not the core runner.
 
 Compile-to-IR plan (`--compile`), local content-addressed step cache + **job
 resume** fingerprints, `--changed` git-affected execution, overlayfs isolation,
-multi-engine (docker/podman/apple), preheat warming, `CleanAfter` pruning, and a
-zero-dependency live TUI.
+multi-engine (docker/podman/apple), preheat warming, `CleanAfter` pruning, a
+zero-dependency live TUI, and a **supply-chain security posture** GHA can't
+match locally: **offline-by-default steps**, per-job **egress allow-lists**, and
+built-in **input sanitizing** (`flow.Sanitize`) for untrusted values like PR
+titles / commit messages.
 
 ---
+
+## Tier 2 status — ✅ mostly DONE
+
+Implemented since the initial analysis:
+
+- **`if:` conditionals** (job + step) with an expression evaluator
+  (`internal/expr`): env/vars/outputs/needs refs, `== != && || !`,
+  `success()/failure()/always()`.
+- **Step & job outputs**: steps write `key=value` to `$SHIP_OUTPUT`; exposed to
+  dependents as `$OUTPUTS_<JOB>_<KEY>` env and `outputs.<job>.<key>` in `if:`.
+- **`--max-parallel`** flag.
+- **`services:` sidecar containers**: start on a shared network, health-wait,
+  reachable by name, torn down after the job.
+- **Supply-chain security**: `OfflineByDefault()`, per-job `Allow(...)` egress
+  allow-lists, and `Sanitize`/`SafeIdentifier` input helpers.
+
+Still open in Tier 2: **uploadable artifacts** (beyond resume cache) and named
+**concurrency groups**.
 
 ## Prioritized roadmap to close the gap
 

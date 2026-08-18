@@ -9,10 +9,23 @@ type RunPlan struct {
 	// Vars are workflow-level variables merged into every job's environment
 	// (job Env overrides on key collision). Serialized in the compiled plan.
 	Vars map[string]string `json:"vars,omitempty"`
+	// Security is the workflow-wide supply-chain / network policy.
+	Security *SecurityPolicy `json:"security,omitempty"`
 	// Preheat is warm-up work (image pull + optional cache-priming command) run
 	// concurrently before the DAG. Advisory — failures never fail the build.
 	Preheat []PreheatSpec `json:"preheat,omitempty"`
 	Jobs    []JobPlan     `json:"jobs"`
+}
+
+// SecurityPolicy configures supply-chain defaults for the whole workflow.
+type SecurityPolicy struct {
+	// OfflineByDefault: container jobs/steps run with no network unless they
+	// explicitly opt in (Job.Network=true or a non-empty Allow list). This is
+	// the recommended default — most build/test steps need no network.
+	OfflineByDefault bool `json:"offlineByDefault,omitempty"`
+	// DefaultAllow is an allow-list of egress hosts applied to every job that
+	// opts into network without its own Allow list (e.g. a package registry).
+	DefaultAllow []string `json:"defaultAllow,omitempty"`
 }
 
 // PreheatSpec is one preheat entry in the plan.
@@ -43,6 +56,9 @@ type JobPlan struct {
 	// Network controls container networking for image jobs. nil = engine
 	// default (on). false = isolated (no network). true = network on.
 	Network *bool `json:"network,omitempty"`
+	// Allow is an egress host allow-list. A non-empty list opts the job into
+	// network (even under OfflineByDefault) but restricts egress to these hosts.
+	Allow []string `json:"allow,omitempty"`
 	// Outputs are file globs persisted for job-level resume (restored when a
 	// job is skipped because its fingerprint matched a prior successful run).
 	Outputs []string `json:"outputs,omitempty"`
@@ -55,6 +71,21 @@ type JobPlan struct {
 	// ContinueOnError: a failing job does not fail the run or cancel siblings;
 	// dependents still run (the job is treated as satisfied).
 	ContinueOnError bool `json:"continueOnError,omitempty"`
+	// If is a conditional expression; the job is skipped when it evaluates false.
+	If string `json:"if,omitempty"`
+	// Services are sidecar containers started before the job's steps and torn
+	// down after. Reachable from container-job steps by their service name.
+	Services []ServiceSpec `json:"services,omitempty"`
+}
+
+// ServiceSpec is a sidecar container for a job (e.g. a database).
+type ServiceSpec struct {
+	Name    string            `json:"name"`              // hostname the steps use
+	Image   string            `json:"image"`             // container image
+	Env     map[string]string `json:"env,omitempty"`     // container env
+	Ports   []string          `json:"ports,omitempty"`   // host:container publishes (native access)
+	Health  string            `json:"health,omitempty"`  // shell cmd run in the service to test readiness
+	Timeout int               `json:"timeout,omitempty"` // readiness timeout seconds (default 30)
 }
 
 // StepPlan is one executable unit within a job.
@@ -74,6 +105,8 @@ type StepPlan struct {
 	RetryBackoffSec int `json:"retryBackoffSec,omitempty"`
 	// ContinueOnError: a failing step does not fail the job; execution proceeds.
 	ContinueOnError bool `json:"continueOnError,omitempty"`
+	// If is a conditional expression; the step is skipped when it evaluates false.
+	If string `json:"if,omitempty"`
 }
 
 // CacheSpec describes how a step's result may be cached. Only steps with a

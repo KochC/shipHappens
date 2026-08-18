@@ -44,6 +44,7 @@ type runOpts struct {
 	noCache     bool
 	compileOnly string
 	engine      string
+	maxParallel int
 	noPreheat   bool
 	useTUI      bool
 	noTUI       bool
@@ -69,6 +70,7 @@ func parseFlags(name string, argv []string) runOpts {
 	fs.BoolVar(&o.noCache, "no-cache", false, "disable step caching")
 	fs.StringVar(&o.compileOnly, "compile", "", "write the compiled plan as JSON to the given path and exit")
 	fs.StringVar(&o.engine, "engine", "docker", "container engine for image jobs (docker|podman|apple)")
+	fs.IntVar(&o.maxParallel, "max-parallel", 0, "max jobs to run concurrently (0 = number of CPUs)")
 	fs.BoolVar(&o.noPreheat, "no-preheat", false, "skip image/cache preheating before the run")
 	fs.BoolVar(&o.useTUI, "tui", false, "render a live status dashboard instead of streaming logs")
 	fs.BoolVar(&o.noTUI, "no-tui", false, "force streaming logs even if the program defaults to the TUI")
@@ -252,6 +254,7 @@ func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 		NoCache:  o.noCache,
 		Only:     only,
 		Engine:   o.engine,
+		MaxPar:   o.maxParallel,
 		Mounts:   o.mounts,
 		Observer: observer,
 		Resume:   o.resume,

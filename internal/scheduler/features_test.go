@@ -46,16 +46,53 @@ func TestCleanAfterKeptOnFailure(t *testing.T) {
 func TestRunnerForDispatch(t *testing.T) {
 	s := &scheduler{opts: Options{Engine: "docker", Workdir: "/w"}}
 
-	if _, ok := s.runnerFor(&compiler.JobPlan{ID: "n"}).(runner.NativeRunner); !ok {
+	if _, ok := s.runnerFor(&compiler.JobPlan{ID: "n"}, "").(runner.NativeRunner); !ok {
 		t.Error("no image -> NativeRunner")
 	}
-	if _, ok := s.runnerFor(&compiler.JobPlan{ID: "c", Image: "img"}).(runner.ContainerRunner); !ok {
+	if _, ok := s.runnerFor(&compiler.JobPlan{ID: "c", Image: "img"}, "").(runner.ContainerRunner); !ok {
 		t.Error("image -> ContainerRunner")
 	}
-	ov := s.runnerFor(&compiler.JobPlan{ID: "o", Image: "img", Overlay: true})
+	ov := s.runnerFor(&compiler.JobPlan{ID: "o", Image: "img", Overlay: true}, "")
 	if or, ok := ov.(runner.OverlayRunner); !ok {
 		t.Error("image+overlay -> OverlayRunner")
 	} else if or.UpperHost == "" {
 		t.Error("OverlayRunner should have an UpperHost path")
 	}
+}
+
+func TestRunnerForOfflineByDefault(t *testing.T) {
+	no := false
+	plan := &compiler.RunPlan{
+		Security: &compiler.SecurityPolicy{OfflineByDefault: true},
+	}
+	s := &scheduler{plan: plan, opts: Options{Engine: "docker"}}
+
+	// offline-by-default container job → Network false
+	r := s.runnerFor(&compiler.JobPlan{ID: "a", Image: "img"}, "")
+	cr, ok := r.(runner.ContainerRunner)
+	if !ok || cr.Network == nil || *cr.Network != false {
+		t.Fatalf("offline default should set Network=false, got %+v", cr)
+	}
+
+	// explicit network=true overrides policy
+	r = s.runnerFor(&compiler.JobPlan{ID: "b", Image: "img", Network: &[]bool{true}[0]}, "")
+	cr = r.(runner.ContainerRunner)
+	if cr.Network == nil || *cr.Network != true {
+		t.Fatalf("explicit network=true should win, got %+v", cr)
+	}
+
+	// allow-list opts into network + carries allow
+	r = s.runnerFor(&compiler.JobPlan{ID: "c", Image: "img", Allow: []string{"npm.example"}}, "")
+	cr = r.(runner.ContainerRunner)
+	if cr.Network == nil || *cr.Network != true || len(cr.Allow) != 1 {
+		t.Fatalf("allow-list should opt into network with allow, got %+v", cr)
+	}
+
+	// services network overrides policy
+	r = s.runnerFor(&compiler.JobPlan{ID: "d", Image: "img"}, "svc-net")
+	cr = r.(runner.ContainerRunner)
+	if cr.NetworkName != "svc-net" {
+		t.Fatalf("services network should be used, got %+v", cr)
+	}
+	_ = no
 }

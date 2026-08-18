@@ -10,6 +10,12 @@ import (
 // Matrix jobs are expanded here into one JobPlan per combination.
 func (w *Workflow) ToPlan() *compiler.RunPlan {
 	p := &compiler.RunPlan{Name: w.Name}
+	if w.offlineByDefault || len(w.defaultAllow) > 0 {
+		p.Security = &compiler.SecurityPolicy{
+			OfflineByDefault: w.offlineByDefault,
+			DefaultAllow:     append([]string(nil), w.defaultAllow...),
+		}
+	}
 	if len(w.vars) > 0 {
 		p.Vars = map[string]string{}
 		for k, v := range w.vars {
@@ -86,11 +92,23 @@ func lowerJob(j *Job, id string, extraEnv map[string]string, needs []string) com
 		Network:         j.network,
 		Outputs:         append([]string(nil), j.outputs...),
 		Overlay:         j.overlay,
+		Allow:           append([]string(nil), j.allow...),
 		TimeoutSec:      j.timeoutSec,
 		ContinueOnError: j.continueOnError,
+		If:              j.ifExpr,
 	}
 	for _, s := range j.secrets {
 		jp.Secrets = append(jp.Secrets, compiler.SecretRef{Name: s.name, FromEnv: s.fromEnv})
+	}
+	for _, sv := range j.services {
+		jp.Services = append(jp.Services, compiler.ServiceSpec{
+			Name:    sv.Name,
+			Image:   sv.Image,
+			Env:     sv.Env,
+			Ports:   append([]string(nil), sv.Ports...),
+			Health:  sv.Health,
+			Timeout: sv.Timeout,
+		})
 	}
 	for _, s := range j.steps {
 		sp := compiler.StepPlan{
@@ -103,6 +121,7 @@ func lowerJob(j *Job, id string, extraEnv map[string]string, needs []string) com
 			Retries:         s.retries,
 			RetryBackoffSec: s.retryBackoffSec,
 			ContinueOnError: s.continueOnError,
+			If:              s.ifExpr,
 		}
 		if s.cache != nil {
 			sp.Cache = &compiler.CacheSpec{

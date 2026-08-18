@@ -69,3 +69,23 @@ func runResult(code int, err error, start time.Time) StepResult {
 	}
 	return res
 }
+
+// execOutputCtx runs a command with context, returning stdout or a formatted
+// error. Overridable in tests.
+var execOutputCtx = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("%s failed: %s", name, string(ee.Stderr))
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+// execRunCollect runs a command with context, streaming combined output to out
+// and returning the exit code. Overridable in tests.
+var execRunCollect = func(ctx context.Context, name string, args []string, out io.Writer) (int, error) {
+	return execRun(ctx, name, args, out)
+}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/chris/shiphappens/internal/compiler"
@@ -19,10 +20,15 @@ import (
 //   - "podman"            → `podman`   binary
 //   - "apple"             → `container` binary (Apple's native macOS container CLI)
 type ContainerRunner struct {
-	Image   string
-	Engine  string
-	Mounts  []string // extra "-v" volume specs, e.g. "ship-pio-cache:/root/.platformio"
-	Network *bool    // nil=engine default; false=isolated (--network none); true=on
+	Image       string
+	Engine      string
+	Mounts      []string // extra "-v" volume specs, e.g. "ship-pio-cache:/root/.platformio"
+	Network     *bool    // nil=engine default; false=isolated (--network none); true=on
+	NetworkName string   // join a named network (e.g. a services network); overrides Network
+	// Allow is an egress host allow-list. When set, the runner exposes it to the
+	// step as $SHIP_ALLOW (advisory scoping in v1; full egress filtering is a
+	// roadmap item requiring an egress proxy).
+	Allow []string
 }
 
 // engineBinary maps an engine name to its CLI executable.
@@ -58,11 +64,16 @@ func (c ContainerRunner) buildArgs(step compiler.StepPlan, workdir string, env m
 		"-v", workdir + ":/ship/work",
 		"-w", wd,
 	}
-	if c.Network != nil && !*c.Network {
+	if c.NetworkName != "" {
+		args = append(args, "--network", c.NetworkName)
+	} else if c.Network != nil && !*c.Network {
 		args = append(args, "--network", "none")
 	}
 	for _, m := range c.Mounts {
 		args = append(args, "-v", m)
+	}
+	if len(c.Allow) > 0 {
+		args = append(args, "-e", "SHIP_ALLOW="+strings.Join(c.Allow, ","))
 	}
 	for _, k := range sortedKeys(env) {
 		args = append(args, "-e", k+"="+env[k])

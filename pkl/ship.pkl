@@ -23,8 +23,37 @@ vars: Mapping<String, String>?
 /// cache-priming commands). Advisory — failures never fail the build.
 preheat: Listing<Preheat>?
 
+/// Supply-chain / network security policy for the whole workflow.
+security: Security?
+
 /// The jobs in the pipeline. Keys are job ids; the id is injected automatically.
 jobs: Mapping<String, Job>
+
+/// Workflow-wide supply-chain defaults.
+class Security {
+  /// Container jobs run with no network unless they opt in (job `network = true`
+  /// or a non-empty `allow` list). Recommended: most build/test steps need none.
+  offlineByDefault: Boolean = false
+  /// Egress allow-list applied to jobs that opt into network without their own.
+  defaultAllow: Listing<String>?
+}
+
+/// A sidecar service container for a job (e.g. a database).
+class Service {
+  /// Hostname the job's container steps use to reach the service.
+  name: String
+  /// Service image.
+  image: String
+  /// Service container environment.
+  env: Mapping<String, String>?
+  /// host:container port publishes.
+  ports: Listing<String>?
+  /// Shell command run inside the service to test readiness.
+  health: String?
+  /// Readiness timeout in seconds (default 30).
+  timeout: Int = 0
+}
+
 
 /// A preheat entry: pull an image and optionally run a warm command in it.
 class Preheat {
@@ -75,6 +104,9 @@ class Step {
   retryBackoffSec: Int = 0
   /// If true, a failing step does not fail the job; execution proceeds.
   continueOnError: Boolean = false
+  /// Conditional expression; the step is skipped when it evaluates false.
+  /// May reference outputs.self.<key> for this job's captured outputs.
+  `if`: String?
 }
 
 /// A DAG node. Runs its steps sequentially on one runner.
@@ -103,6 +135,15 @@ class Job {
   timeoutSec: Int = 0
   /// If true, a failing job does not fail the run or cancel siblings.
   continueOnError: Boolean = false
+  /// Conditional expression; the job is skipped when it evaluates false.
+  /// May reference env.X, vars.X, needs.<job>.result, outputs.<job>.<key>,
+  /// and success()/failure()/always().
+  `if`: String?
+  /// Egress host allow-list. A non-empty list opts the job into network (even
+  /// under offlineByDefault) but scopes egress to these hosts.
+  allow: Listing<String>?
+  /// Sidecar services started before the job's steps and torn down after.
+  services: Listing<Service>?
 }
 
 
@@ -113,6 +154,12 @@ output {
   value = new Dynamic {
     name = module.name
     when (module.vars != null) { vars = module.vars }
+    when (module.security != null) {
+      security = new Dynamic {
+        when (module.security.offlineByDefault) { ["offlineByDefault"] = true }
+        when (module.security.defaultAllow != null) { ["defaultAllow"] = module.security.defaultAllow }
+      }
+    }
     when (module.preheat != null) {
       preheat = new Listing {
         for (ph in module.preheat!!) {
@@ -160,6 +207,7 @@ output {
                 when (st.retries > 0) { ["retries"] = st.retries }
                 when (st.retryBackoffSec > 0) { ["retryBackoffSec"] = st.retryBackoffSec }
                 when (st.continueOnError) { ["continueOnError"] = true }
+                when (st.`if` != null) { ["if"] = st.`if` }
               }
             }
           }
@@ -169,6 +217,22 @@ output {
           when (j.overlay) { ["overlay"] = true }
           when (j.timeoutSec > 0) { ["timeoutSec"] = j.timeoutSec }
           when (j.continueOnError) { ["continueOnError"] = true }
+          when (j.`if` != null) { ["if"] = j.`if` }
+          when (j.allow != null) { ["allow"] = j.allow }
+          when (j.services != null) {
+            ["services"] = new Listing {
+              for (sv in j.services!!) {
+                new Dynamic {
+                  ["name"] = sv.name
+                  ["image"] = sv.image
+                  when (sv.env != null) { ["env"] = sv.env }
+                  when (sv.ports != null) { ["ports"] = sv.ports }
+                  when (sv.health != null) { ["health"] = sv.health }
+                  when (sv.timeout > 0) { ["timeout"] = sv.timeout }
+                }
+              }
+            }
+          }
         }
       }
     }
