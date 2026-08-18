@@ -16,8 +16,8 @@ func TestStepDAGParallelAndOrder(t *testing.T) {
 	// setup + compile run in parallel; smoke needs both; push needs smoke.
 	p := &compiler.RunPlan{Name: "T", Jobs: []compiler.JobPlan{
 		{ID: "deploy", Steps: []compiler.StepPlan{
-			{ID: "setup", Run: `sleep 0.3 && echo setup >> order.txt`},
-			{ID: "compile", Run: `sleep 0.3 && echo compile >> order.txt`},
+			{ID: "setup", Run: `sleep 1 && echo setup >> order.txt`},
+			{ID: "compile", Run: `sleep 1 && echo compile >> order.txt`},
 			{ID: "smoke", Run: `echo smoke >> order.txt`, Needs: []string{"setup", "compile"}},
 			{ID: "push", Run: `echo push >> order.txt`, Needs: []string{"smoke"}},
 		}},
@@ -27,8 +27,9 @@ func TestStepDAGParallelAndOrder(t *testing.T) {
 	if res.Failed {
 		t.Fatalf("run failed: %+v", res)
 	}
-	// parallel setup+compile → total < sum (0.6s) — allow slack
-	if time.Since(start) > 550*time.Millisecond {
+	// setup ∥ compile (each 1s): parallel ⇒ well under their 2s sum. Generous
+	// margin (1.8s) so it's unambiguous yet robust on slow CI.
+	if time.Since(start) > 1800*time.Millisecond {
 		t.Errorf("setup+compile should run in parallel, took %s", time.Since(start))
 	}
 	b, _ := os.ReadFile(filepath.Join(work, "order.txt"))

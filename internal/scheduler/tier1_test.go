@@ -51,14 +51,16 @@ func TestJobContinueOnError(t *testing.T) {
 func TestStepTimeout(t *testing.T) {
 	p := &compiler.RunPlan{Name: "T", Jobs: []compiler.JobPlan{
 		{ID: "a", Steps: []compiler.StepPlan{
-			{ID: "slow", Run: "sleep 5", TimeoutSec: 1},
+			{ID: "slow", Run: "sleep 30", TimeoutSec: 1},
 		}},
 	}}
 	res := Run(context.Background(), p, Options{Workdir: t.TempDir(), NoCache: true})
 	if !res.Failed {
 		t.Fatal("step exceeding its timeout should fail")
 	}
-	if res.Duration.Seconds() > 3 {
+	// The 1s timeout must cancel well before the 30s sleep completes. Generous
+	// margin so it's robust on slow/loaded CI runners.
+	if res.Duration.Seconds() > 15 {
 		t.Fatalf("timeout should have canceled quickly, took %s", res.Duration)
 	}
 }
@@ -66,12 +68,15 @@ func TestStepTimeout(t *testing.T) {
 func TestJobTimeout(t *testing.T) {
 	p := &compiler.RunPlan{Name: "T", Jobs: []compiler.JobPlan{
 		{ID: "a", TimeoutSec: 1, Steps: []compiler.StepPlan{
-			{ID: "slow", Run: "sleep 5"},
+			{ID: "slow", Run: "sleep 30"},
 		}},
 	}}
 	res := Run(context.Background(), p, Options{Workdir: t.TempDir(), NoCache: true})
 	if !res.Failed {
 		t.Fatal("job exceeding its timeout should fail")
+	}
+	if res.Duration.Seconds() > 15 {
+		t.Fatalf("job timeout should cancel quickly, took %s", res.Duration)
 	}
 }
 
