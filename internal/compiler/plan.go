@@ -9,7 +9,17 @@ type RunPlan struct {
 	// Vars are workflow-level variables merged into every job's environment
 	// (job Env overrides on key collision). Serialized in the compiled plan.
 	Vars map[string]string `json:"vars,omitempty"`
-	Jobs []JobPlan         `json:"jobs"`
+	// Preheat is warm-up work (image pull + optional cache-priming command) run
+	// concurrently before the DAG. Advisory — failures never fail the build.
+	Preheat []PreheatSpec `json:"preheat,omitempty"`
+	Jobs    []JobPlan     `json:"jobs"`
+}
+
+// PreheatSpec is one preheat entry in the plan.
+type PreheatSpec struct {
+	Image  string   `json:"image"`
+	Warm   string   `json:"warm,omitempty"`
+	Mounts []string `json:"mounts,omitempty"`
 }
 
 // SecretRef names a secret a job requires. The value is resolved at run time

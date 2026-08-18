@@ -155,12 +155,12 @@ func run(w *Workflow, o runOpts) int {
 		logs.Failure("%s", err.Error())
 		return 1
 	}
-	return runCompiled(plan, w.preheat, o)
+	return runCompiled(plan, o)
 }
 
 // runCompiled executes an already-validated plan. Shared by the Go DSL
 // front-end (run) and file-based front-ends (Pkl/JSON via cmd/ship).
-func runCompiled(plan *compiler.RunPlan, preheats []Preheat, o runOpts) int {
+func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 	// CLI --var overrides (for file-loaded plans, applied here too).
 	if len(o.vars) > 0 {
 		if plan.Vars == nil {
@@ -226,8 +226,8 @@ func runCompiled(plan *compiler.RunPlan, preheats []Preheat, o runOpts) int {
 	wd, _ := getwd()
 
 	// Preheat: pull images + prime shared caches concurrently before the DAG.
-	if !o.noPreheat && len(preheats) > 0 {
-		runPreheats(ctx, preheats, o.engine, wd, o.mounts)
+	if !o.noPreheat && len(plan.Preheat) > 0 {
+		runPreheats(ctx, plan.Preheat, o.engine, wd, o.mounts)
 		fmt.Println()
 	}
 
@@ -276,12 +276,12 @@ var preheatFn = runner.Preheat
 
 // runPreheats warms images + caches concurrently. Advisory: logs failures but
 // never affects exit status.
-func runPreheats(ctx context.Context, specs []Preheat, engine, workdir string, mounts []string) {
+func runPreheats(ctx context.Context, specs []compiler.PreheatSpec, engine, workdir string, mounts []string) {
 	logs.Header("Preheating %d image(s)/cache(s)…", len(specs))
 	var wg sync.WaitGroup
 	for _, p := range specs {
 		wg.Add(1)
-		go func(p Preheat) {
+		go func(p compiler.PreheatSpec) {
 			defer wg.Done()
 			out := logs.Prefixed("preheat")
 			err := preheatFn(ctx, runner.PreheatSpec{

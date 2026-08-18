@@ -23,7 +23,7 @@ func RunFile(path string, argv []string) int {
 		return 1
 	}
 	o := parseFlags(path, argv)
-	return runCompiled(plan, nil, o)
+	return runCompiled(plan, o)
 }
 
 // MainFile is a convenience wrapper that runs a plan file and exits.

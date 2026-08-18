@@ -12,6 +12,13 @@ func (w *Workflow) ToPlan() *compiler.RunPlan {
 			p.Vars[k] = v
 		}
 	}
+	for _, ph := range w.preheat {
+		p.Preheat = append(p.Preheat, compiler.PreheatSpec{
+			Image:  ph.Image,
+			Warm:   ph.Warm,
+			Mounts: append([]string(nil), ph.Mounts...),
+		})
+	}
 	for _, j := range w.jobs {
 		jp := compiler.JobPlan{
 			ID:         j.id,

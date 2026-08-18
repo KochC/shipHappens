@@ -19,8 +19,22 @@ name: String
 /// (job `env` overrides on key collision).
 vars: Mapping<String, String>?
 
+/// Warm-up work run concurrently before the DAG (image pulls + optional
+/// cache-priming commands). Advisory — failures never fail the build.
+preheat: Listing<Preheat>?
+
 /// The jobs in the pipeline. Keys are job ids; the id is injected automatically.
 jobs: Mapping<String, Job>
+
+/// A preheat entry: pull an image and optionally run a warm command in it.
+class Preheat {
+  /// Image to pull.
+  image: String
+  /// Optional shell command to run in the image (e.g. prime a toolchain cache).
+  warm: String?
+  /// Volume mounts for the warm command.
+  mounts: Listing<String>?
+}
 
 /// A secret required by a job. Resolved at run time from the host environment
 /// (`fromEnv`, defaulting to `name`) — the value is never stored in the plan.
@@ -80,6 +94,17 @@ output {
   value = new Dynamic {
     name = module.name
     when (module.vars != null) { vars = module.vars }
+    when (module.preheat != null) {
+      preheat = new Listing {
+        for (ph in module.preheat!!) {
+          new Dynamic {
+            ["image"] = ph.image
+            when (ph.warm != null) { ["warm"] = ph.warm }
+            when (ph.mounts != null) { ["mounts"] = ph.mounts }
+          }
+        }
+      }
+    }
     jobs = new Listing {
       for (id, j in module.jobs) {
         new Dynamic {

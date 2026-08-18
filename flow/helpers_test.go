@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/chris/shiphappens/internal/compiler"
 	"github.com/chris/shiphappens/internal/runner"
 )
 
@@ -81,7 +82,7 @@ func TestRunPreheatsStubbed(t *testing.T) {
 	quietLogs(t)
 	restore := stubPreheat(t, nil)
 	defer restore()
-	specs := []Preheat{{Image: "a"}, {Image: "b", Warm: "w", Mounts: []string{"m:/x"}}}
+	specs := []compiler.PreheatSpec{{Image: "a"}, {Image: "b", Warm: "w", Mounts: []string{"m:/x"}}}
 	runPreheats(context.Background(), specs, "docker", "/wd", []string{"g:/y"})
 }
 
@@ -90,5 +91,5 @@ func TestRunPreheatsFailureAdvisory(t *testing.T) {
 	restore := stubPreheat(t, context.DeadlineExceeded)
 	defer restore()
 	// failure is advisory: must not panic / must return
-	runPreheats(context.Background(), []Preheat{{Image: "a"}}, "docker", "/wd", nil)
+	runPreheats(context.Background(), []compiler.PreheatSpec{{Image: "a"}}, "docker", "/wd", nil)
 }
