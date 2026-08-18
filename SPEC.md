@@ -126,6 +126,22 @@ func main() {
 | `Outputs(globs ...) *Job` | Declare the **job's** result artifacts for resume (restored when the job is skipped). |
 | `Overlay() *Job` | Run a container job in an overlayfs upper layer (Linux; graceful fallback otherwise). |
 | `CleanAfter(globs ...) *Job` | Delete path globs after the job succeeds (prune build intermediates). |
+| `Matrix(map[string][]string) *Job` | Expand the job over the cartesian product of the dimensions: one job per combination, values exposed as env vars (uppercased key) and appended to the id. Dependents depend on all expansions. |
+| `Timeout(seconds) *Job` | Whole-job wall-clock timeout; on expiry the running step is canceled and the job fails (unless `ContinueOnError`). |
+| `ContinueOnError() *Job` | Non-fatal job: on failure the run is not failed and dependents still run. |
+
+Step-configuring builders (attach to the **most recently added** step; no-op if
+none):
+
+| Method | Description |
+|---|---|
+| `Cache(opts ...CacheOption) *Job` | Attach cache inputs/outputs. |
+| `StepEnv(key, val) *Job` | Step-level env var (overrides job env). |
+| `WorkingDir(dir) *Job` | Working directory (relative to the workdir) for the step. |
+| `Shell(shell) *Job` | Interpreter for the step: `sh` (default), `bash`, `python`, `node`, or any binary. |
+| `StepTimeout(seconds) *Job` | Per-step wall-clock timeout. |
+| `Retry(n, backoffSec...) *Job` | `n` additional attempts on failure, optional backoff between attempts. |
+| `StepContinueOnError() *Job` | Non-fatal step: on failure the job proceeds to the next step. |
 
 Cache options: `flow.Inputs(globs...)`, `flow.Outputs(globs...)`.
 
@@ -210,21 +226,38 @@ The DSL is lowered to an immutable IR:
 type RunPlan struct { Name string; Jobs []JobPlan }
 
 type JobPlan struct {
-    ID         string
-    RunsOn     string
-    Image      string          // container image; empty ⇒ native
-    Needs      []string
-    Env        map[string]string
-    Steps      []StepPlan
-    CleanAfter []string        // prune globs (post-success)
-    Network    *bool           // nil=default, true=on, false=isolated
-    Outputs    []string        // job result globs (resume)
-    Overlay    bool
+    ID              string
+    RunsOn          string
+    Image           string          // container image; empty ⇒ native
+    Needs           []string
+    Env             map[string]string
+    Secrets         []SecretRef
+    Steps           []StepPlan
+    CleanAfter      []string        // prune globs (post-success)
+    Network         *bool           // nil=default, true=on, false=isolated
+    Outputs         []string        // job result globs (resume)
+    Overlay         bool
+    TimeoutSec      int             // whole-job timeout (0 = none)
+    ContinueOnError bool            // failure is non-fatal
 }
 
-type StepPlan struct { ID, Run string; Cache *CacheSpec }
+type StepPlan struct {
+    ID              string
+    Run             string
+    Cache           *CacheSpec
+    Env             map[string]string // step env (overrides job env)
+    WorkingDir      string            // dir relative to workdir
+    Shell           string            // sh (default), bash, python, node, …
+    TimeoutSec      int               // per-step timeout (0 = none)
+    Retries         int               // extra attempts on failure
+    RetryBackoffSec int               // delay between attempts
+    ContinueOnError bool              // failure is non-fatal
+}
 type CacheSpec struct { Inputs, Outputs []string }
 ```
+
+Matrix is an authoring-time concept: the Go DSL and Pkl expand a matrix into N
+`JobPlan`s at compile/eval time, so the IR itself contains only expanded jobs.
 
 ### 5.2 Static validation (all before execution)
 
@@ -337,6 +370,27 @@ wf.Job("release").
     SecretFrom("AWS_KEY", "AWS_ACCESS_KEY_ID").
     Run("publish", "npm publish")           // $REGION, $NPM_TOKEN, $AWS_KEY set
 ```
+
+### 6.6 Matrix, timeouts, retries, error handling
+
+- **Matrix (fan-out).** A job may declare a matrix of dimensions; the Go DSL and
+  Pkl expand it at compile/eval time into one job per combination of the
+  cartesian product. Each expansion gets the combination's values as env vars
+  (uppercased key), an id suffix (`test/linux-1.22`), and any job depending on
+  the matrix job depends on **all** its expansions.
+- **Timeouts.** `TimeoutSec` on a job bounds its total wall-clock time; on a
+  step it bounds that step. On expiry the running process is canceled (context
+  cancellation → SIGKILL) and the step/job fails (unless continue-on-error).
+- **Retries.** A step with `Retries: n` is attempted up to `n+1` times on
+  non-zero exit, with an optional `RetryBackoffSec` delay between attempts.
+  Retries stop early if the run is canceled (fail-fast/shutdown). Each attempt
+  counts toward the run's `ran` total.
+- **continue-on-error.**
+  - *Step:* a failing step marked `ContinueOnError` does not fail the job;
+    execution proceeds to the next step.
+  - *Job:* a failing job marked `ContinueOnError` does not fail the run or cancel
+    siblings, and its dependents still run (the job is treated as satisfied, not
+    failed). This is the opt-out from fail-fast.
 
 ---
 

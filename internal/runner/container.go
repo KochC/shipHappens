@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -42,10 +43,20 @@ func engineBinary(engine string) string {
 // buildArgs constructs the engine CLI args for a step. Pure and deterministic
 // (env keys are sorted) so it can be unit-tested without invoking a container.
 func (c ContainerRunner) buildArgs(step compiler.StepPlan, workdir string, env map[string]string) []string {
+	// The container's working dir is /ship/work; a step WorkingDir maps to a
+	// path relative to it (absolute paths are used as-is inside the container).
+	wd := "/ship/work"
+	if step.WorkingDir != "" {
+		if filepath.IsAbs(step.WorkingDir) {
+			wd = step.WorkingDir
+		} else {
+			wd = "/ship/work/" + step.WorkingDir
+		}
+	}
 	args := []string{
 		"run", "--rm",
 		"-v", workdir + ":/ship/work",
-		"-w", "/ship/work",
+		"-w", wd,
 	}
 	if c.Network != nil && !*c.Network {
 		args = append(args, "--network", "none")
@@ -56,7 +67,10 @@ func (c ContainerRunner) buildArgs(step compiler.StepPlan, workdir string, env m
 	for _, k := range sortedKeys(env) {
 		args = append(args, "-e", k+"="+env[k])
 	}
-	args = append(args, c.Image, "sh", "-c", step.Run)
+	shell, shellArgs := shellCommand(step.Shell)
+	args = append(args, c.Image, shell)
+	args = append(args, shellArgs...)
+	args = append(args, step.Run)
 	return args
 }
 

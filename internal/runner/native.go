@@ -10,15 +10,18 @@ import (
 	"github.com/chris/shiphappens/internal/compiler"
 )
 
-// NativeRunner runs steps as local shell commands via `sh -c`.
+// NativeRunner runs steps as local shell commands.
 type NativeRunner struct{}
 
 // Run executes the step's command, streaming stdout+stderr to out. Cancellation
-// of ctx kills the process (fail-fast support).
+// of ctx kills the process (fail-fast/timeout support). The step's Shell and
+// WorkingDir are honored.
 func (NativeRunner) Run(ctx context.Context, step compiler.StepPlan, workdir string, env map[string]string, out io.Writer) StepResult {
 	start := time.Now()
-	cmd := exec.CommandContext(ctx, "sh", "-c", step.Run)
-	cmd.Dir = workdir
+	shell, shellArgs := shellCommand(step.Shell)
+	args := append(shellArgs, step.Run)
+	cmd := exec.CommandContext(ctx, shell, args...)
+	cmd.Dir = stepDir(workdir, step.WorkingDir)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.Env = os.Environ()

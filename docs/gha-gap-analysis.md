@@ -25,7 +25,7 @@ future "server/remote" milestone, not the core runner.
 | Jobs | ✅ | |
 | `needs` (DAG) | ✅ | topo order, subgraph, dependents all implemented |
 | Parallel execution | ✅ | bounded by `NumCPU` |
-| `strategy.matrix` (fan-out) | ❌ | no matrix in DSL/IR/Pkl |
+| `strategy.matrix` (fan-out) | ✅ | `Matrix(dims)`; compile-time cartesian expansion into N jobs |
 | `max-parallel` | 🟡 | `Options.MaxPar` exists but no CLI flag |
 | Job-level `if:` (conditional) | ❌ | only dependency-failure skipping + resume/changed filtering |
 
@@ -36,10 +36,10 @@ future "server/remote" milestone, not the core runner.
 | `run:` shell steps | ✅ | via `sh -c` |
 | Step id / name | ✅ | |
 | `uses:` actions / marketplace | ❌ | no action mechanism at all |
-| `shell:` selection (bash/pwsh/python) | ❌ | hardcoded `sh -c` |
-| Per-step `working-directory` | ❌ | single workdir only |
-| Step-level `env` | ❌ | env is job-scoped |
-| `continue-on-error` (step) | ❌ | first failure fails the job |
+| `shell:` selection (bash/python/node) | ✅ | per-step `Shell(...)`; default `sh` |
+| Per-step `working-directory` | ✅ | `WorkingDir(...)` per step |
+| Step-level `env` | ✅ | `StepEnv(...)` (overrides job env) |
+| `continue-on-error` (step) | ✅ | `StepContinueOnError()` |
 
 ## 4. Runners / execution
 
@@ -78,10 +78,10 @@ future "server/remote" milestone, not the core runner.
 |---|---|---|
 | Parallelism | ✅ | |
 | Fail-fast | ✅ | unconditional |
-| `fail-fast: false` opt-out | ❌ | cannot disable |
+| `fail-fast: false` opt-out | ✅ | job `ContinueOnError()` makes a job non-fatal |
 | `concurrency:` groups / cancel-in-progress | ❌ | — |
-| `timeout-minutes` (job/step) | ❌ | no timeout logic |
-| Retries | ❌ | — |
+| `timeout` (job/step) | ✅ | `Timeout(s)` / `StepTimeout(s)`; ctx cancellation |
+| Retries | ✅ | per-step `Retry(n, backoff)` |
 
 ## 8. Reusable / composite workflows & actions
 
@@ -128,18 +128,16 @@ zero-dependency live TUI.
 Ranked by value-for-effort for a **local CI runner** (some GHA features are
 intentionally out of scope for local-first).
 
-### Tier 1 — high value, self-contained (do next)
-1. **`matrix` / fan-out** — expand a job over parameter combinations. Huge
-   real-world use; pure compile-time expansion into N `JobPlan`s. No engine
-   change.
-2. **Job/step `timeout`** — `context.WithTimeout` per job/step. Prevents hung
-   builds from blocking a slot. Small, high-value.
-3. **`continue-on-error` + `fail-fast: false`** — let a step/job fail without
-   canceling the run. Scheduler already has the plumbing.
-4. **Step-level `env` + per-step `working-directory` + `shell`** — small IR
-   additions; big authoring ergonomics win.
-5. **Retries** (`retry: n`, backoff) — wrap the step runner. Closes an audit
-   item too.
+### Tier 1 — ✅ DONE (implemented in Go DSL, Pkl schema, and scheduler)
+1. **`matrix` / fan-out** — ✅ `Matrix(dims)`; compile/eval-time cartesian
+   expansion into N jobs; dependents depend on all expansions.
+2. **Job/step `timeout`** — ✅ `Timeout(s)` / `StepTimeout(s)` via
+   `context.WithTimeout`.
+3. **`continue-on-error` + `fail-fast: false`** — ✅ `StepContinueOnError()` and
+   job `ContinueOnError()` (the fail-fast opt-out).
+4. **Step-level `env` + per-step `working-directory` + `shell`** — ✅ `StepEnv`,
+   `WorkingDir`, `Shell`.
+5. **Retries** — ✅ per-step `Retry(n, backoffSec...)`.
 
 ### Tier 2 — valuable, moderate effort
 6. **Step & job outputs** — capture `key=value` from a step (a `$SHIP_OUTPUT`

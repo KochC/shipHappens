@@ -15,3 +15,6 @@ demos/**/.gomodcache/
 
 # built ship CLI in demos
 demos/**/ship
+
+# demo scratch
+.flaky-done

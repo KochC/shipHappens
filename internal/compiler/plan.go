@@ -49,13 +49,31 @@ type JobPlan struct {
 	// Overlay, when true (container jobs only), runs the job with an overlayfs
 	// upperdir so its writes are captured as an isolated diff layer.
 	Overlay bool `json:"overlay,omitempty"`
+	// TimeoutSec, when > 0, bounds the whole job's wall-clock time; on expiry the
+	// running step is canceled and the job fails (unless ContinueOnError).
+	TimeoutSec int `json:"timeoutSec,omitempty"`
+	// ContinueOnError: a failing job does not fail the run or cancel siblings;
+	// dependents still run (the job is treated as satisfied).
+	ContinueOnError bool `json:"continueOnError,omitempty"`
 }
 
 // StepPlan is one executable unit within a job.
 type StepPlan struct {
-	ID    string     `json:"id"`
-	Run   string     `json:"run"`
-	Cache *CacheSpec `json:"cache,omitempty"`
+	ID         string            `json:"id"`
+	Run        string            `json:"run"`
+	Cache      *CacheSpec        `json:"cache,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`        // step-level env (overrides job env)
+	WorkingDir string            `json:"workingDir,omitempty"` // dir (relative to workdir) to run in
+	Shell      string            `json:"shell,omitempty"`      // shell to use (default "sh"); e.g. "bash", "python"
+	// TimeoutSec, when > 0, bounds this step's wall-clock time.
+	TimeoutSec int `json:"timeoutSec,omitempty"`
+	// Retries is the number of additional attempts (total attempts = Retries+1)
+	// if the step exits non-zero.
+	Retries int `json:"retries,omitempty"`
+	// RetryBackoffSec is the delay between retry attempts (default 0).
+	RetryBackoffSec int `json:"retryBackoffSec,omitempty"`
+	// ContinueOnError: a failing step does not fail the job; execution proceeds.
+	ContinueOnError bool `json:"continueOnError,omitempty"`
 }
 
 // CacheSpec describes how a step's result may be cached. Only steps with a

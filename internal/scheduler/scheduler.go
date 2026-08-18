@@ -315,23 +315,38 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	jobStart := time.Now()
 	s.emit(Event{Kind: JobStarted, Job: job.ID})
 
+	// Apply a job-level timeout if set.
+	jobCtx := ctx
+	var cancelJob context.CancelFunc
+	if job.TimeoutSec > 0 {
+		jobCtx, cancelJob = context.WithTimeout(ctx, time.Duration(job.TimeoutSec)*time.Second)
+		defer cancelJob()
+	}
+
 	for _, step := range job.Steps {
-		cached, ok := s.execStep(ctx, run, job, step, effEnv, cacheEnv, out)
-		if cached {
+		cached, ok := s.execStep(jobCtx, run, job, step, effEnv, cacheEnv, out)
+		if cached || ok {
 			continue
 		}
-		if !ok {
-			jobFailed = true
-			break
+		// Step failed. continue-on-error at step level lets the job proceed.
+		if step.ContinueOnError {
+			logs.Step(job.ID, step.ID, "failed (continue-on-error)", false, false)
+			continue
 		}
+		jobFailed = true
+		break
 	}
+
+	// continue-on-error at job level: a failed job does not fail the run or
+	// cancel siblings; dependents still run (treated as satisfied).
+	jobFatal := jobFailed && !job.ContinueOnError
 
 	s.mu.Lock()
 	s.done[job.ID] = true
 	if fp != "" {
 		s.fps[job.ID] = fp
 	}
-	if jobFailed {
+	if jobFatal {
 		s.failed[job.ID] = true
 		s.anyFail = true
 		s.cancel() // fail-fast
@@ -378,10 +393,7 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Cached: true})
 			return true, true
 		}
-		res := run.Run(ctx, step, s.opts.Workdir, effEnv, out)
-		s.mu.Lock()
-		s.ranCnt++
-		s.mu.Unlock()
+		res := s.runStep(ctx, run, step, effEnv, out)
 		if res.Err != nil {
 			logs.Step(job.ID, step.ID, fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond)), false, false)
 			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false, Duration: res.Duration})
@@ -395,10 +407,7 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 		return false, true
 	}
 
-	res := run.Run(ctx, step, s.opts.Workdir, effEnv, out)
-	s.mu.Lock()
-	s.ranCnt++
-	s.mu.Unlock()
+	res := s.runStep(ctx, run, step, effEnv, out)
 	if res.Err != nil {
 		logs.Step(job.ID, step.ID, fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond)), false, false)
 		s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false, Duration: res.Duration})
@@ -407,4 +416,44 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 	logs.Step(job.ID, step.ID, res.Duration.Round(time.Millisecond).String(), true, false)
 	s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Duration: res.Duration})
 	return false, true
+}
+
+// runStep executes a step once (or with retries), applying a per-step timeout,
+// and counts each attempt as a run.
+func (s *scheduler) runStep(ctx context.Context, run runner.Runner, step compiler.StepPlan, effEnv map[string]string, out io.Writer) runner.StepResult {
+	attempts := step.Retries + 1
+	var res runner.StepResult
+	for attempt := 1; attempt <= attempts; attempt++ {
+		stepCtx := ctx
+		var cancel context.CancelFunc
+		if step.TimeoutSec > 0 {
+			stepCtx, cancel = context.WithTimeout(ctx, time.Duration(step.TimeoutSec)*time.Second)
+		}
+		res = run.Run(stepCtx, step, s.opts.Workdir, effEnv, out)
+		if cancel != nil {
+			cancel()
+		}
+		s.mu.Lock()
+		s.ranCnt++
+		s.mu.Unlock()
+
+		if res.Err == nil {
+			return res
+		}
+		// Don't retry if the parent context was canceled (fail-fast/shutdown).
+		if ctx.Err() != nil {
+			return res
+		}
+		if attempt < attempts {
+			logs.Info("  retrying %s (attempt %d/%d)", step.ID, attempt+1, attempts)
+			if step.RetryBackoffSec > 0 {
+				select {
+				case <-time.After(time.Duration(step.RetryBackoffSec) * time.Second):
+				case <-ctx.Done():
+					return res
+				}
+			}
+		}
+	}
+	return res
 }

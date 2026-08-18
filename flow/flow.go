@@ -26,18 +26,21 @@ type Preheat struct {
 
 // Job is a node in the pipeline being built.
 type Job struct {
-	id         string
-	runsOn     string
-	image      string
-	needs      []string
-	env        map[string]string
-	secrets    []secretRef
-	cleanAfter []string
-	network    *bool
-	outputs    []string
-	overlay    bool
-	steps      []*Step
-	line       string // "file.go:NN" of the .Job(...) call site
+	id              string
+	runsOn          string
+	image           string
+	needs           []string
+	env             map[string]string
+	secrets         []secretRef
+	cleanAfter      []string
+	network         *bool
+	outputs         []string
+	overlay         bool
+	timeoutSec      int
+	continueOnError bool
+	matrix          map[string][]string
+	steps           []*Step
+	line            string // "file.go:NN" of the .Job(...) call site
 }
 
 type secretRef struct {
@@ -47,9 +50,16 @@ type secretRef struct {
 
 // Step is one command within a job.
 type Step struct {
-	name  string
-	run   string
-	cache *cacheSpec
+	name            string
+	run             string
+	cache           *cacheSpec
+	env             map[string]string
+	workingDir      string
+	shell           string
+	timeoutSec      int
+	retries         int
+	retryBackoffSec int
+	continueOnError bool
 }
 
 type cacheSpec struct {
@@ -171,9 +181,93 @@ func (j *Job) CleanAfter(globs ...string) *Job {
 	return j
 }
 
+// Timeout bounds the whole job's wall-clock time (seconds). On expiry the
+// running step is canceled and the job fails (unless ContinueOnError).
+func (j *Job) Timeout(seconds int) *Job { j.timeoutSec = seconds; return j }
+
+// ContinueOnError marks the job non-fatal: if it fails, the run is not failed
+// and siblings/dependents still run (the job is treated as satisfied).
+func (j *Job) ContinueOnError() *Job { j.continueOnError = true; return j }
+
+// Matrix expands this job over the cartesian product of the given dimensions:
+// one job per combination, with the combination's values exposed as env vars
+// (uppercased key) and appended to the job id. E.g.
+//
+//	Matrix(map[string][]string{"os": {"linux","mac"}, "go": {"1.21","1.22"}})
+//
+// produces 4 jobs with $OS and $GO set. Dependencies on a matrix job depend on
+// all of its expansions.
+func (j *Job) Matrix(dims map[string][]string) *Job { j.matrix = dims; return j }
+
 // Run appends a shell-command step to the job.
 func (j *Job) Run(name, command string) *Job {
 	j.steps = append(j.steps, &Step{name: name, run: command})
+	return j
+}
+
+// lastStep returns the most recently added step, or nil.
+func (j *Job) lastStep() *Step {
+	if len(j.steps) == 0 {
+		return nil
+	}
+	return j.steps[len(j.steps)-1]
+}
+
+// StepEnv sets an env var on the most recently added step (overrides job env).
+func (j *Job) StepEnv(key, val string) *Job {
+	if s := j.lastStep(); s != nil {
+		if s.env == nil {
+			s.env = map[string]string{}
+		}
+		s.env[key] = val
+	}
+	return j
+}
+
+// WorkingDir sets the working directory (relative to the workdir) for the most
+// recently added step.
+func (j *Job) WorkingDir(dir string) *Job {
+	if s := j.lastStep(); s != nil {
+		s.workingDir = dir
+	}
+	return j
+}
+
+// Shell sets the shell/interpreter for the most recently added step
+// (e.g. "bash", "python", "node"). Default is "sh".
+func (j *Job) Shell(shell string) *Job {
+	if s := j.lastStep(); s != nil {
+		s.shell = shell
+	}
+	return j
+}
+
+// StepTimeout bounds the most recently added step's wall-clock time (seconds).
+func (j *Job) StepTimeout(seconds int) *Job {
+	if s := j.lastStep(); s != nil {
+		s.timeoutSec = seconds
+	}
+	return j
+}
+
+// Retry configures retries for the most recently added step: n additional
+// attempts on failure, with an optional backoff (seconds) between attempts.
+func (j *Job) Retry(n int, backoffSec ...int) *Job {
+	if s := j.lastStep(); s != nil {
+		s.retries = n
+		if len(backoffSec) > 0 {
+			s.retryBackoffSec = backoffSec[0]
+		}
+	}
+	return j
+}
+
+// StepContinueOnError marks the most recently added step non-fatal: if it
+// fails, the job continues to the next step.
+func (j *Job) StepContinueOnError() *Job {
+	if s := j.lastStep(); s != nil {
+		s.continueOnError = true
+	}
 	return j
 }
 

@@ -100,3 +100,14 @@ go run ./cmd/ship validate demos/pkl-app/pipeline.pkl
 
 Evaluates to the same RunPlan JSON as Go pipelines and runs through the identical
 engine. See `demos/pkl-app/README.md` and the schema at `pkl/ship.pkl`.
+
+## matrix-app — matrix, retries, timeouts, continue-on-error
+
+`demos/matrix-app/` — Tier-1 features: a build **matrix** (os × go-version →
+4 parallel jobs with `$OS`/`$GO`), per-step **retries**, **timeouts**, and
+job/step **continue-on-error**.
+
+```bash
+go run ./demos/matrix-app
+go run ./demos/matrix-app --no-tui   # see per-step output
+```

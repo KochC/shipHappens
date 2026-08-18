@@ -53,7 +53,7 @@ class Cache {
   outputs: Listing<String>?
 }
 
-/// One executable step within a job (`sh -c run`).
+/// One executable step within a job.
 class Step {
   /// Step name/id.
   id: String
@@ -61,6 +61,20 @@ class Step {
   run: String
   /// Optional cache hint.
   cache: Cache?
+  /// Step-level environment variables (override job env).
+  env: Mapping<String, String>?
+  /// Working directory (relative to the workdir) to run the step in.
+  workingDir: String?
+  /// Shell/interpreter to use (default "sh"); e.g. "bash", "python", "node".
+  shell: String?
+  /// Per-step timeout in seconds (0 = none).
+  timeoutSec: Int = 0
+  /// Number of additional attempts if the step fails (total = retries + 1).
+  retries: Int = 0
+  /// Delay between retry attempts, in seconds.
+  retryBackoffSec: Int = 0
+  /// If true, a failing step does not fail the job; execution proceeds.
+  continueOnError: Boolean = false
 }
 
 /// A DAG node. Runs its steps sequentially on one runner.
@@ -85,7 +99,12 @@ class Job {
   outputs: Listing<String>?
   /// Run a container job in an overlayfs upper layer (Linux; graceful fallback).
   overlay: Boolean = false
+  /// Whole-job timeout in seconds (0 = none).
+  timeoutSec: Int = 0
+  /// If true, a failing job does not fail the run or cancel siblings.
+  continueOnError: Boolean = false
 }
+
 
 /// Render to the RunPlan JSON shape Ship Happens consumes. `pkl eval -f json`
 /// on a module that amends `ship.pkl` yields exactly this object.
@@ -134,6 +153,13 @@ output {
                     when (st.cache.outputs != null) { ["outputs"] = st.cache.outputs }
                   }
                 }
+                when (st.env != null) { ["env"] = st.env }
+                when (st.workingDir != null) { ["workingDir"] = st.workingDir }
+                when (st.shell != null) { ["shell"] = st.shell }
+                when (st.timeoutSec > 0) { ["timeoutSec"] = st.timeoutSec }
+                when (st.retries > 0) { ["retries"] = st.retries }
+                when (st.retryBackoffSec > 0) { ["retryBackoffSec"] = st.retryBackoffSec }
+                when (st.continueOnError) { ["continueOnError"] = true }
               }
             }
           }
@@ -141,6 +167,8 @@ output {
           when (j.network != null) { ["network"] = j.network }
           when (j.outputs != null) { ["outputs"] = j.outputs }
           when (j.overlay) { ["overlay"] = true }
+          when (j.timeoutSec > 0) { ["timeoutSec"] = j.timeoutSec }
+          when (j.continueOnError) { ["continueOnError"] = true }
         }
       }
     }
