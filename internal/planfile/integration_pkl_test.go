@@ -89,3 +89,24 @@ func TestIntegrationReusableTemplates(t *testing.T) {
 		t.Errorf("amended needs wrong: %+v", build.Needs)
 	}
 }
+
+func TestIntegrationToolchainField(t *testing.T) {
+	if _, err := exec.LookPath("pkl"); err != nil {
+		t.Skip("pkl not installed")
+	}
+	root := filepath.Join("..", "..")
+	pipeline := filepath.Join(root, "demos", "toolchain-app", "pipeline.pkl")
+	if _, err := os.Stat(pipeline); err != nil {
+		t.Skipf("toolchain demo not found: %v", err)
+	}
+	plan, err := Load(pipeline)
+	if err != nil {
+		t.Fatalf("load toolchain pipeline: %v", err)
+	}
+	if plan.Toolchain["node"] != "20.11.0" {
+		t.Errorf("workflow toolchain not evaluated: %+v", plan.Toolchain)
+	}
+	if j := plan.Job("node18"); j == nil || j.Toolchain["node"] != "18.20.4" {
+		t.Errorf("job toolchain override not evaluated: %+v", j)
+	}
+}

@@ -1,0 +1,27 @@
+/// Native versioned toolchains — reproducible builds without a container.
+///
+///     ship run pipeline.pkl        # requires `mise` (https://mise.jdx.dev)
+///
+/// The job runs natively (no image) but with a PINNED node version, resolved by
+/// mise into the step PATH. Without mise it warns and falls back to host tools.
+amends "../../pkl/ship.pkl"
+
+name = "Native toolchain"
+
+// Pin a Node version workflow-wide; a job overrides with its own.
+toolchain { ["node"] = "20.11.0" }
+
+jobs {
+  ["node20"] {
+    steps {
+      new { id = "version"; run = "echo using node $(node --version)" }
+    }
+  }
+
+  ["node18"] {
+    toolchain { ["node"] = "18.20.4" }   // per-job override
+    steps {
+      new { id = "version"; run = "echo using node $(node --version)" }
+    }
+  }
+}

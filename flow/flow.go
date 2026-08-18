@@ -14,6 +14,7 @@ type Workflow struct {
 	preheat          []Preheat
 	offlineByDefault bool
 	defaultAllow     []string
+	toolchain        map[string]string
 }
 
 // Preheat is warm-up work performed before the DAG runs: pulling a container
@@ -34,6 +35,7 @@ type Job struct {
 	needs           []string
 	env             map[string]string
 	secrets         []secretRef
+	toolchain       map[string]string
 	cleanAfter      []string
 	network         *bool
 	outputs         []string
@@ -139,6 +141,25 @@ func (w *Workflow) AllowHosts(hosts ...string) *Workflow {
 	return w
 }
 
+// Tool pins a tool version for native jobs (e.g. Tool("go", "1.22.5")). Ship
+// Happens resolves it (via mise) into a per-run PATH so native steps get
+// reproducible versions without containers. Job-level Tool overrides per key.
+func (w *Workflow) Tool(name, version string) *Workflow {
+	if w.toolchain == nil {
+		w.toolchain = map[string]string{}
+	}
+	w.toolchain[name] = version
+	return w
+}
+
+// Toolchain pins multiple tool versions at once.
+func (w *Workflow) Toolchain(tools map[string]string) *Workflow {
+	for k, v := range tools {
+		w.Tool(k, v)
+	}
+	return w
+}
+
 // RunsOn sets the execution backend label (default "native").
 func (j *Job) RunsOn(label string) *Job { j.runsOn = label; return j }
 
@@ -163,6 +184,16 @@ func (j *Job) NeedsID(ids ...string) *Job {
 
 // Env sets an environment variable for all steps in the job.
 func (j *Job) Env(key, val string) *Job { j.env[key] = val; return j }
+
+// Tool pins a tool version for this native job (overrides the workflow
+// toolchain for that key). Ignored for container jobs.
+func (j *Job) Tool(name, version string) *Job {
+	if j.toolchain == nil {
+		j.toolchain = map[string]string{}
+	}
+	j.toolchain[name] = version
+	return j
+}
 
 // Secret exposes a secret env var to the job's steps, resolved at run time from
 // the host environment variable of the same name. Secret values are masked in

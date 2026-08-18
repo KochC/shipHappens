@@ -22,6 +22,12 @@ func (w *Workflow) ToPlan() *compiler.RunPlan {
 			p.Vars[k] = v
 		}
 	}
+	if len(w.toolchain) > 0 {
+		p.Toolchain = map[string]string{}
+		for k, v := range w.toolchain {
+			p.Toolchain[k] = v
+		}
+	}
 	for _, ph := range w.preheat {
 		p.Preheat = append(p.Preheat, compiler.PreheatSpec{
 			Image:  ph.Image,
@@ -88,6 +94,7 @@ func lowerJob(j *Job, id string, extraEnv map[string]string, needs []string) com
 		Image:           j.image,
 		Needs:           needs,
 		Env:             env,
+		Toolchain:       cloneMap(j.toolchain),
 		CleanAfter:      append([]string(nil), j.cleanAfter...),
 		Network:         j.network,
 		Outputs:         append([]string(nil), j.outputs...),
@@ -203,4 +210,16 @@ func (w *Workflow) Lines() map[string]string {
 		}
 	}
 	return m
+}
+
+// cloneMap returns a copy of m, or nil if empty.
+func cloneMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }

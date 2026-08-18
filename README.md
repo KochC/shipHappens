@@ -92,12 +92,14 @@ the `ship` CLI, and Pkl authoring — with a full DSL reference table.
 
 ## Feature highlights
 
-Jobs & DAG · matrix fan-out · containers (docker/podman/apple) · overlayfs
-isolation · workflow vars & host-sourced **secrets** (masked, fail-fast) ·
-content-addressed **step cache** · **job resume** · `--changed` · **timeouts**,
-**retries**, **continue-on-error** · step-level env/workdir/shell · preheating ·
-`CleanAfter` pruning · live **TUI** · compiled JSON **plan** artifact · a
-standalone **`ship`** CLI.
+Jobs & DAG · **step sub-graphs** (needs + onFailure) · matrix fan-out ·
+containers (docker/podman/apple) · **native versioned toolchains** (no
+container) · overlayfs isolation · workflow vars & host-sourced **secrets**
+(masked, fail-fast) · content-addressed **step cache** · **job resume** ·
+`--changed` · **timeouts**, **retries**, **continue-on-error** · **`if:`
+conditionals & outputs** · **services** (sidecars) · step-level env/workdir/shell
+· preheating · `CleanAfter` pruning · **cache GC** · live **TUI** · compiled JSON
+**plan** artifact · reusable **Pkl templates** · a standalone **`ship`** CLI.
 
 See how it compares to GitHub Actions: [docs/gha-gap-analysis.md](docs/gha-gap-analysis.md).
 
@@ -151,6 +153,7 @@ go run ./demos/vue-app      # real npm + vitest + vite build in a container
 DEPLOY_TOKEN=sk-x go run ./demos/secrets-app   # variables + masked secrets
 go run ./cmd/ship run demos/pkl-app/pipeline.pkl   # authored in Pkl
 go run ./cmd/ship run demos/reusable-app/pipeline.pkl   # composed from reusable templates
+go run ./cmd/ship run demos/toolchain-app/pipeline.pkl  # native pinned tool versions (needs mise)
 ```
 
 See [demos/README.md](demos/README.md) for details.

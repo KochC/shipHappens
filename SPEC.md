@@ -458,6 +458,21 @@ Precedence for a job's effective network mode: explicit `network=false` (hard
 isolation) > job `allow` list > explicit `network=true` > `offlineByDefault`
 (→ none) > policy `defaultAllow` > engine default.
 
+### 6.10 Native toolchains (reproducible without containers)
+
+Native jobs (no `image`) run against the host's tools by default — fast and
+zero-infra, but not version-pinned. A workflow or job may declare a
+**`toolchain`** map (`{go: "1.22.5", node: "20.11.0"}`) to get container-grade
+reproducibility while still running natively:
+
+- Ship Happens resolves the pinned versions via [**mise**](https://mise.jdx.dev)
+  (installs + caches them) and **prepends their bin directories to the step
+  PATH**, so `go`/`node`/… resolve to exactly the requested versions.
+- Job `toolchain` merges over the workflow `toolchain` (job values win per key).
+- Applies only to native jobs; container jobs use the image's tools.
+- **Graceful fallback:** if mise is not installed, resolution is a logged
+  advisory and steps fall back to the host tools — the pipeline still runs.
+
 ---
 
 ## 7. Caching & incremental builds

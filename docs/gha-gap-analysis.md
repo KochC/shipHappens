@@ -143,6 +143,9 @@ Implemented since the initial analysis:
 - **Step sub-graphs**: step-level `needs` (a DAG within a job, parallel where
   possible) and `onFailure` handler steps — GHA has no equivalent (its steps are
   strictly sequential).
+- **Native versioned toolchains**: pin `go`/`node`/… versions for native jobs
+  (mise-backed) — reproducible builds without containers, which GHA only offers
+  via per-language setup actions.
 
 Still open in Tier 2: **uploadable artifacts** (beyond resume cache) and named
 **concurrency groups**.

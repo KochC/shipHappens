@@ -21,6 +21,7 @@ import (
 	"github.com/chris/shiphappens/internal/runner"
 	"github.com/chris/shiphappens/internal/secrets"
 	"github.com/chris/shiphappens/internal/security"
+	"github.com/chris/shiphappens/internal/toolchain"
 )
 
 // Options configure a run.
@@ -371,6 +372,22 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	}
 	// Expose upstream job outputs to steps as env: OUTPUTS_<JOB>_<KEY>.
 	s.injectUpstreamOutputs(job, effEnv)
+
+	// Native jobs: resolve pinned tool versions into the step PATH (mise-backed,
+	// reproducible without containers). Container jobs use the image's tools.
+	if job.Image == "" {
+		if tools := toolchain.Merge(s.plan.Toolchain, job.Toolchain); len(tools) > 0 {
+			if dirs, terr := toolchain.Resolve(ctx, tools); terr != nil {
+				logs.Info("  [%s] toolchain: %v", job.ID, terr) // advisory: fall back to host tools
+			} else if len(dirs) > 0 {
+				path := effEnv["PATH"]
+				if path == "" {
+					path = os.Getenv("PATH")
+				}
+				effEnv["PATH"] = toolchain.PrependPath(path, dirs)
+			}
+		}
+	}
 
 	out := logs.MaskedPrefixed(job.ID, masker.Mask)
 	jobFailed := false

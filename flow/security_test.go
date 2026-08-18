@@ -107,3 +107,16 @@ func TestStepNeedsOnFailureNoStepNoop(t *testing.T) {
 		t.Error("step-graph options before Run should not attach to later step")
 	}
 }
+
+func TestLowerToolchain(t *testing.T) {
+	wf := New("W").Tool("go", "1.22.5").Toolchain(map[string]string{"node": "20.11.0"})
+	wf.Job("build").Tool("python", "3.12.1").Run("s", "x")
+
+	p := wf.ToPlan()
+	if p.Toolchain["go"] != "1.22.5" || p.Toolchain["node"] != "20.11.0" {
+		t.Fatalf("workflow toolchain not lowered: %+v", p.Toolchain)
+	}
+	if p.Jobs[0].Toolchain["python"] != "3.12.1" {
+		t.Fatalf("job toolchain not lowered: %+v", p.Jobs[0].Toolchain)
+	}
+}

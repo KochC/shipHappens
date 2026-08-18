@@ -9,6 +9,11 @@ type RunPlan struct {
 	// Vars are workflow-level variables merged into every job's environment
 	// (job Env overrides on key collision). Serialized in the compiled plan.
 	Vars map[string]string `json:"vars,omitempty"`
+	// Toolchain pins tool versions (e.g. {"go":"1.22.5","node":"20.11.0"}) for
+	// NATIVE jobs: Ship Happens resolves them (via mise) into a per-run PATH so
+	// native steps get reproducible tool versions without containers. Job-level
+	// Toolchain overrides/extends this per key.
+	Toolchain map[string]string `json:"toolchain,omitempty"`
 	// Security is the workflow-wide supply-chain / network policy.
 	Security *SecurityPolicy `json:"security,omitempty"`
 	// Preheat is warm-up work (image pull + optional cache-priming command) run
@@ -50,6 +55,7 @@ type JobPlan struct {
 	Image      string            `json:"image,omitempty"`
 	Needs      []string          `json:"needs,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
+	Toolchain  map[string]string `json:"toolchain,omitempty"` // pinned native tool versions (job override)
 	Secrets    []SecretRef       `json:"secrets,omitempty"`
 	Steps      []StepPlan        `json:"steps"`
 	CleanAfter []string          `json:"cleanAfter,omitempty"`

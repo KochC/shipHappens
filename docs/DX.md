@@ -190,6 +190,29 @@ jobs {
 - **Overlay isolation:** `overlay = true` runs a container job in an overlayfs
   upper layer (Linux; falls back gracefully where unsupported).
 
+### Native toolchains (no container, but reproducible)
+
+Native jobs use the host's tools by default. To pin exact versions — reproducible
+builds **without** a container — declare a `toolchain`:
+
+```pkl
+name = "CI"
+toolchain { ["go"] = "1.22.5" }        // workflow-wide default
+
+jobs {
+  ["test"] { steps { new { id = "t"; run = "go test ./..." } } }   // uses go 1.22.5
+  ["fe"] {
+    toolchain { ["node"] = "20.11.0" }  // job override
+    steps { new { id = "b"; run = "node --version && npm ci" } }
+  }
+}
+```
+
+Ship Happens resolves these via [mise](https://mise.jdx.dev) (install `mise` for
+this to take effect; otherwise it logs a warning and falls back to host tools)
+and prepends the pinned bin dirs to each step's PATH. Container jobs (`image`)
+use the image's tools and ignore `toolchain`.
+
 ---
 
 ## 6. Variables & secrets

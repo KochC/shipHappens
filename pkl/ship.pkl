@@ -19,6 +19,11 @@ name: String
 /// (job `env` overrides on key collision).
 vars: Mapping<String, String>?
 
+/// Pinned tool versions for NATIVE jobs (e.g. { ["go"] = "1.22.5" }). Ship
+/// Happens resolves these (via mise) into a per-run PATH so native steps get
+/// reproducible versions without containers. Job `toolchain` overrides per key.
+toolchain: Mapping<String, String>?
+
 /// Warm-up work run concurrently before the DAG (image pulls + optional
 /// cache-priming commands). Advisory — failures never fail the build.
 preheat: Listing<Preheat>?
@@ -124,6 +129,8 @@ class Job {
   needs: Listing<String>?
   /// Job-scoped environment variables.
   env: Mapping<String, String>?
+  /// Pinned native tool versions for this job (overrides workflow toolchain).
+  toolchain: Mapping<String, String>?
   /// Secrets exposed to this job's steps.
   secrets: Listing<Secret>?
   /// The steps to run.
@@ -159,6 +166,7 @@ output {
   value = new Dynamic {
     name = module.name
     when (module.vars != null) { vars = module.vars }
+    when (module.toolchain != null) { toolchain = module.toolchain }
     when (module.security != null) {
       security = new Dynamic {
         when (module.security.offlineByDefault) { ["offlineByDefault"] = true }
@@ -184,6 +192,7 @@ output {
           when (j.image != null) { ["image"] = j.image }
           when (j.needs != null) { ["needs"] = j.needs }
           when (j.env != null) { ["env"] = j.env }
+          when (j.toolchain != null) { ["toolchain"] = j.toolchain }
           when (j.secrets != null) {
             ["secrets"] = new Listing {
               for (s in j.secrets!!) {
