@@ -580,16 +580,15 @@ glob walks.
 
 ## 11. Roadmap (not yet implemented)
 
-Prioritized from the internal audit:
+Genuinely-open items (most of the original audit list has since shipped —
+timeouts, retries, step-level env, cache GC, exec-bit preservation, container
+cleanup on cancel, and log-pipe closing are all implemented):
 
 - **Correctness:** mutex + atomic index write in the cache store; path-traversal
   guard on tar restore; include `Network`/`Overlay`/`Engine`/`Mounts` in the
   resume fingerprint; union `--changed` results with required upstreams.
-- **Robustness:** per-job/step **timeouts** and **retries**; container cleanup
-  on cancellation (named containers + kill); close log pipe writers (goroutine
-  leak); preserve executable bits on restore.
-- **Features:** step-level env overrides; named concurrency groups; persistent
-  per-run log capture; cache GC/eviction.
+- **Features:** named concurrency groups; persistent per-run log capture to disk;
+  uploadable artifacts store (`ship artifacts <run>`).
 - **Performance:** single-walk, parallel, cross-job-deduped input hashing;
   stat-first step-cache check.
 - **Platform:** remote runners / distributed execution.

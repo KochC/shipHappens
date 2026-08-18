@@ -1,15 +1,38 @@
+<div align="center">
+
+<img src="docs/assets/logo.png" alt="Ship Happens" width="220" />
+
 # Ship Happens
 
-**A local-first, GitHub Actions–style CI runner in Go.** Pipelines are code (a
-Go DSL or [Pkl](https://pkl-lang.org)), compiled to a validated plan, and run
-locally as a parallel DAG — with content-addressed caching, incremental resume,
-container or native execution, secrets, and a live terminal dashboard.
+### Local-first CI that fails in **milliseconds**, not 14 minutes.
 
-> Fail in milliseconds when your pipeline is broken, not after 14 minutes of CI.
+A GitHub Actions–style pipeline runner in Go. Pipelines are **code** — authored
+in [Pkl](https://pkl-lang.org) (or a Go DSL / JSON) — compiled to a validated
+plan, and run **on your machine** as a parallel DAG: content-addressed caching,
+incremental resume, containers or native, secrets, a live TUI, an **MCP server**
+for agents, and **actually-enforced** network egress.
+
+<br/>
+
+[![CI](https://img.shields.io/badge/CI-self--built%20🚢-2f81f7?style=flat-square)](ci/pipeline.pkl)
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go)](go.mod)
+[![Coverage](https://img.shields.io/badge/coverage-95%25%2B-3fb950?style=flat-square)](Makefile)
+[![staticcheck](https://img.shields.io/badge/staticcheck-clean-3fb950?style=flat-square)](ci/pipeline.pkl)
+[![vulncheck](https://img.shields.io/badge/govulncheck-0-3fb950?style=flat-square)](go.mod)
+[![Deps](https://img.shields.io/badge/runtime%20deps-0-0d2b52?style=flat-square)](go.mod)
+
+[**Quickstart**](#-quickstart) ·
+[**Why**](#-why-ship-happens) ·
+[**Features**](#-features) ·
+[**MCP for agents**](#-mcp--drive-ci-from-your-agent) ·
+[**Install**](#-install) ·
+[**Docs**](docs/DX.md)
+
+</div>
 
 ---
 
-## The DX in 30 seconds
+## ⚡ Quickstart
 
 A pipeline is a **Pkl** file. This one checks out, lints and tests in parallel,
 then builds — with caching, a container job, a retry, and a masked secret:
@@ -62,55 +85,106 @@ ship run pipeline.pkl --tui      # live dashboard
   ▸ 2 done · 1 running · 1 pending
 ```
 
-`ship run` evaluates the Pkl with the `pkl` CLI (`brew install pkl`), validates
-the DAG, and executes it. Pipelines can **also** be authored as a Go program or
-raw JSON plan — all lower to the same engine (see [docs/DX.md §13](docs/DX.md#13-also-available-go-dsl--json)).
+> `ship run` evaluates the Pkl with the `pkl` CLI (`brew install pkl`), validates
+> the DAG, and executes it. Pipelines can **also** be authored as a Go program or
+> raw JSON plan — all lower to the same engine
+> ([docs/DX.md §13](docs/DX.md#13-also-available-go-dsl--json)).
 
 ---
 
-## 📖 Full DX reference
+## 🧭 Why Ship Happens
 
-**[docs/DX.md](docs/DX.md)** — the complete guide to every feature: jobs & the
-DAG, steps, containers & engines, variables & secrets, caching & resume, matrix
-fan-out, timeouts/retries/error-handling, preheating, the TUI, compiled plans,
-the `ship` CLI, and Pkl authoring — with a full DSL reference table.
+|  | |
+|---|---|
+| 🚦 **Compile before execute** | Parse, validate, and check the DAG for cycles up front, with `file:line` diagnostics. No discovering a typo after 11 minutes. |
+| 💻 **Local is the default** | Reproduce CI on your machine — native, or in containers (Docker / Podman / Apple `container`). |
+| ⚡ **Cache everything safe** | Content-addressed step cache **plus** job-level resume: skip whole unchanged jobs and restore their artifacts. |
+| 🧵 **Fast by design** | Parallel DAG across every core; `--changed` runs only what git touched. |
+| 📐 **Typed, declarative** | Pipelines in Pkl (sandboxed, reviewable). A Go DSL and raw JSON plans lower to the same engine. |
+| 🔒 **Actually secure** | Offline-by-default containers and egress allow-lists **enforced by a filtering proxy** — not just documented. |
+| 🤖 **Agent-native** | A built-in MCP server lets agents/IDEs validate, run (async), and poll pipelines. |
+| 🪶 **Zero runtime deps** | Pure Go standard library. One static binary. |
 
 ---
 
-## Why Ship Happens
+## ✨ Features
 
-- **Compile before execute** — parse, validate, and check the DAG for cycles up
-  front, with `file:line` diagnostics. No discovering a typo after 11 minutes.
-- **Local is the default** — reproduce CI on your machine; native or in
-  containers (Docker / Podman / Apple `container`).
-- **Cache everything safe** — content-addressed step cache **plus** job-level
-  resume (skip whole unchanged jobs, restore their artifacts).
-- **Fast** — parallel DAG across all your cores; `--changed` runs only what git
-  touched.
-- **Typed, declarative config** — pipelines in Pkl (sandboxed, reviewable);
-  a Go DSL and raw JSON plans also lower to the same engine.
+<table>
+<tr>
+<td valign="top" width="33%">
 
-## Feature highlights
+**Graph & execution**
+- Jobs & DAG, parallel scheduling
+- **Step sub-graphs** (`needs` + `onFailure`)
+- Matrix fan-out
+- `if:` conditionals & job/step **outputs**
+- **timeouts** · **retries** · continue-on-error
+- `--changed` (git-aware) · `--job` · `--resume`
 
-Jobs & DAG · **step sub-graphs** (needs + onFailure) · matrix fan-out ·
-containers (docker/podman/apple) · **native versioned toolchains** (no
-container) · overlayfs isolation · workflow vars & host-sourced **secrets**
-(masked, fail-fast) · content-addressed **step cache** · **job resume** ·
-`--changed` · **timeouts**, **retries**, **continue-on-error** · **`if:`
-conditionals & outputs** · **services** (sidecars) · step-level env/workdir/shell
-· preheating · `CleanAfter` pruning · **cache GC** · live **TUI** · **MCP server**
-(for agents/IDEs) · **live notifications** · **enforced egress allow-lists** ·
-compiled JSON **plan** artifact · reusable **Pkl templates** · a standalone
-**`ship`** CLI.
+</td>
+<td valign="top" width="33%">
 
-See how it compares to GitHub Actions: [docs/gha-gap-analysis.md](docs/gha-gap-analysis.md).
+**Execution environments**
+- Containers (docker / podman / apple)
+- **Native versioned toolchains** (mise)
+- overlayfs isolation
+- **services** (sidecar containers)
+- step-level env / workdir / shell
+- preheating & `CleanAfter` pruning
 
-## Install
+</td>
+<td valign="top" width="33%">
+
+**Caching, security & DX**
+- Content-addressed **step cache**
+- **Job resume** + cache **GC**
+- Host-sourced **secrets** (masked)
+- **Enforced egress allow-lists**
+- Live **TUI** · **live notifications**
+- **MCP server** · reusable **Pkl templates**
+
+</td>
+</tr>
+</table>
+
+<div align="center">
+
+📊 See the full [**GitHub Actions gap analysis**](docs/gha-gap-analysis.md) · 📖 Every feature in the [**DX reference**](docs/DX.md)
+
+</div>
+
+---
+
+## 🤖 MCP — drive CI from your agent
+
+Ship ships an [**MCP**](https://modelcontextprotocol.io) server (`ship-mcp`) so
+agents and MCP-aware IDEs can drive pipelines over stdio. Register it:
+
+```jsonc
+{ "mcpServers": { "shiphappens": { "command": "ship-mcp" } } }
+```
+
+| Tool | What it does |
+|---|---|
+| `ship_validate` | Compile + validate a pipeline (diagnostics) |
+| `ship_graph` | Return the job dependency graph |
+| `ship_run` | Start a run **in the background**, return a `runId` immediately |
+| `ship_status` | Poll job/step progress — **read-only, never re-triggers work** |
+| `ship_cancel` · `ship_runs` · `ship_cache_du` | Cancel · list runs · cache usage |
+
+The async **`ship_run` → `ship_status`** split is the key: an agent starts a run
+and polls on its own cadence, never blocking and never accidentally re-running
+(status is a pure in-memory snapshot fed by live scheduler events).
+
+---
+
+## 📦 Install
 
 Install the `ship` CLI (Pkl pipelines also need the [`pkl`](https://pkl-lang.org)
 CLI — e.g. `brew install pkl`).
 
-**Install script** (prebuilt binary from a GitHub Release):
+<details open>
+<summary><b>Install script</b> (prebuilt binary from a GitHub Release)</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh | bash
@@ -127,26 +201,39 @@ curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh |
 # or:  GITHUB_TOKEN=ghp_… bash install.sh
 ```
 
-**With Go** (handles private repos via your git auth):
+</details>
+
+<details>
+<summary><b>With Go</b> (handles private repos via your git auth)</summary>
 
 ```bash
 go install github.com/chris/shiphappens/cmd/ship@v0.1.0   # or @latest
 ```
 
-**Prebuilt binaries:** grab a `ship_<version>_<os>_<arch>` asset from the
+</details>
+
+<details>
+<summary><b>Prebuilt binaries</b> & companion tools</summary>
+
+Grab a `ship_<version>_<os>_<arch>` asset from the
 [Releases page](https://github.com/KochC/shipHappens/releases) (checksums in
 `checksums.txt`). Two companion binaries are published alongside `ship`:
-**`ship-mcp`** (the [MCP](https://modelcontextprotocol.io) server for
-agents/IDEs — register with `{ "command": "ship-mcp" }`) and **`ship-egress`**
-(the egress-filtering proxy Ship starts automatically to enforce a job's
-`allow` list). Neither is required for normal `ship run` use.
+
+- **`ship-mcp`** — the [MCP](https://modelcontextprotocol.io) server for agents/IDEs (`{ "command": "ship-mcp" }`).
+- **`ship-egress`** — the egress-filtering proxy Ship starts automatically to enforce a job's `allow` list.
+
+Neither is required for normal `ship run` use.
+
+</details>
 
 ```bash
 ship version
 ship run pipeline.pkl
 ```
 
-## Try the demos
+---
+
+## 🧪 Try the demos
 
 ```bash
 go run ./demos/demo1        # parallel fan-out/fan-in (TUI)
@@ -157,18 +244,21 @@ go run ./demos/python-app   # real ruff + pytest + wheel in a container
 go run ./demos/go-app       # real go vet + test + build in a container
 go run ./demos/vue-app      # real npm + vitest + vite build in a container
 DEPLOY_TOKEN=sk-x go run ./demos/secrets-app   # variables + masked secrets
-go run ./cmd/ship run demos/pkl-app/pipeline.pkl   # authored in Pkl
-go run ./cmd/ship run demos/reusable-app/pipeline.pkl   # composed from reusable templates
-go run ./cmd/ship run demos/toolchain-app/pipeline.pkl  # native pinned tool versions (needs mise)
+go run ./cmd/ship run demos/pkl-app/pipeline.pkl       # authored in Pkl
+go run ./cmd/ship run demos/reusable-app/pipeline.pkl  # composed from reusable templates
+go run ./cmd/ship run demos/toolchain-app/pipeline.pkl # native pinned tool versions (needs mise)
 ```
 
 See [demos/README.md](demos/README.md) for details.
 
-## Build & test
+---
+
+## 🔨 Build & test
 
 Ship Happens **builds itself** — its own CI is a Ship Happens pipeline
-([`ci/pipeline.pkl`](ci/pipeline.pkl)): vet → test (race) ∥ coverage gate →
-build the `ship` CLI → validate the demo pipelines (including itself). Run it:
+([`ci/pipeline.pkl`](ci/pipeline.pkl)): a static-analysis **lint** job
+(gofmt + staticcheck + govulncheck) alongside vet → test (race) ∥ coverage gate
+→ build the `ship` CLI → validate the demo pipelines (including itself).
 
 ```bash
 go build -o bin/ship ./cmd/ship
@@ -178,7 +268,7 @@ go build -o bin/ship ./cmd/ship
 Or the raw targets:
 
 ```bash
-make            # vet + test
+make               # vet + test
 make cover-check   # 95% coverage gate
 make integration   # container-backed tests (needs Docker)  [ENGINE=docker|podman|apple]
 make pkl-test      # Pkl integration (needs the pkl CLI)
@@ -199,9 +289,18 @@ make hooks         # sets core.hooksPath=.githooks
 
 Bypass in a pinch with `git commit/push --no-verify`.
 
-## Documentation
+---
 
-- **[docs/DX.md](docs/DX.md)** — developer experience & full feature guide
-- **[SPEC.md](SPEC.md)** — system specification (architecture, IR, execution)
-- **[docs/gha-gap-analysis.md](docs/gha-gap-analysis.md)** — GitHub Actions comparison
-- **[docs/adr/](docs/adr/)** — architecture decision records
+## 📚 Documentation
+
+| Doc | What's inside |
+|---|---|
+| 📖 [**docs/DX.md**](docs/DX.md) | Developer experience & full feature guide + Pkl schema reference |
+| 🏗️ [**SPEC.md**](SPEC.md) | System specification — architecture, IR, execution model |
+| 📊 [**docs/gha-gap-analysis.md**](docs/gha-gap-analysis.md) | Feature-by-feature GitHub Actions comparison |
+| 🧭 [**docs/adr/**](docs/adr/) | Architecture decision records |
+
+<div align="center">
+<br/>
+<sub>Built with Go, zero runtime dependencies, and a healthy fear of 14-minute CI feedback loops. 🚢</sub>
+</div>

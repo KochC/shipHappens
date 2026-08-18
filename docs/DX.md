@@ -633,10 +633,13 @@ Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
 | `image` | `String?` | — | Container image; when set, runs in a container. |
 | `needs` | `Listing<String>?` | — | Dependency job ids. |
 | `env` | `Mapping<String,String>?` | — | Job-scoped env (overrides vars). |
+| `toolchain` | `Mapping<String,String>?` | — | Pinned tool versions for this job (mise-backed). |
 | `secrets` | `Listing<Secret>?` | — | Host-sourced, masked secrets. |
 | `steps` | `Listing<Step>` | — | Steps (required). |
+| `services` | `Listing<Service>?` | — | Sidecar service containers. |
 | `cleanAfter` | `Listing<String>?` | — | Path globs pruned after success. |
 | `network` | `Boolean?` | — | null=default, true=on, false=isolated. |
+| `allow` | `Listing<String>?` | — | Egress allow-list; enforced by a filtering proxy. |
 | `outputs` | `Listing<String>?` | — | Result globs persisted for `--resume`. |
 | `overlay` | `Boolean` | `false` | overlayfs upper-layer isolation. |
 | `timeoutSec` | `Int` | `0` | Whole-job timeout (0 = none). |
@@ -656,14 +659,17 @@ Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
 | `retries` | `Int` | `0` | Additional attempts on failure. |
 | `retryBackoffSec` | `Int` | `0` | Delay between attempts. |
 | `continueOnError` | `Boolean` | `false` | Non-fatal step. |
+| `needs` | `Listing<String>?` | — | Step-level deps (a DAG within the job). |
+| `onFailure` | `Listing<Step>?` | — | Handler steps run only if this step fails. |
 
-### `Cache`, `Secret`, `Preheat`
+### `Cache`, `Secret`, `Preheat`, `Service`
 
 | Class | Fields |
 |---|---|
 | `Cache` | `inputs: Listing<String>?`, `outputs: Listing<String>?` |
 | `Secret` | `name: String`, `fromEnv: String?` |
 | `Preheat` | `image: String`, `warm: String?`, `mounts: Listing<String>?` |
+| `Service` | `name: String`, `image: String`, `env: Mapping<String,String>?`, `ports: Listing<String>?`, `health: String?`, `timeout: Int` |
 
 ---
 
