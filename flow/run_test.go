@@ -180,11 +180,6 @@ func TestRunPreheat(t *testing.T) {
 
 func TestMainInvokesRunAndExit(t *testing.T) {
 	quietLogs(t)
-	wd := t.TempDir()
-	prevWd := getwd
-	getwd = func() (string, error) { return wd, nil }
-	t.Cleanup(func() { getwd = prevWd })
-
 	var gotCode int
 	prevExit := osExit
 	osExit = func(code int) { gotCode = code }
@@ -197,6 +192,31 @@ func TestMainInvokesRunAndExit(t *testing.T) {
 	Main(simpleWorkflow())
 	if gotCode != 0 {
 		t.Fatalf("Main --graph should exit 0, got %d", gotCode)
+	}
+}
+
+func TestRunWithTUIVariants(t *testing.T) {
+	quietLogs(t)
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("HOME", t.TempDir())
+	wd := t.TempDir()
+	prevWd := getwd
+	getwd = func() (string, error) { return wd, nil }
+	t.Cleanup(func() { getwd = prevWd })
+
+	var codes []int
+	prevExit := osExit
+	osExit = func(c int) { codes = append(codes, c) }
+	t.Cleanup(func() { osExit = prevExit })
+
+	prevArgs := os.Args
+	os.Args = []string{"prog", "--no-cache"}
+	t.Cleanup(func() { os.Args = prevArgs })
+
+	RunWithTUI(simpleWorkflow())
+	RunWithTUIResume(simpleWorkflow())
+	if len(codes) != 2 || codes[0] != 0 || codes[1] != 0 {
+		t.Fatalf("expected two clean exits, got %v", codes)
 	}
 }
 

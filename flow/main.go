@@ -88,6 +88,24 @@ func Main(w *Workflow) {
 	osExit(run(w, parseFlags(w.Name, os.Args[1:])))
 }
 
+// RunWithTUI is like Main but forces the live TUI dashboard on (equivalent to
+// passing --tui). Other CLI flags are still honored. Handy for demos and for
+// programs that always want the dashboard.
+func RunWithTUI(w *Workflow) {
+	o := parseFlags(w.Name, os.Args[1:])
+	o.useTUI = true
+	osExit(run(w, o))
+}
+
+// RunWithTUIResume forces both the live TUI and resume/incremental mode on
+// (equivalent to --tui --resume). Other CLI flags are still honored.
+func RunWithTUIResume(w *Workflow) {
+	o := parseFlags(w.Name, os.Args[1:])
+	o.useTUI = true
+	o.resume = true
+	osExit(run(w, o))
+}
+
 // run executes the pipeline per opts and returns the process exit code. It never
 // calls os.Exit, so it is fully testable.
 func run(w *Workflow, o runOpts) int {
