@@ -9,6 +9,7 @@ import (
 // Workflow is a pipeline definition being built by the DSL.
 type Workflow struct {
 	Name    string
+	vars    map[string]string
 	jobs    []*Job
 	preheat []Preheat
 }
@@ -29,13 +30,19 @@ type Job struct {
 	runsOn     string
 	image      string
 	needs      []string
-	steps      []*Step
 	env        map[string]string
+	secrets    []secretRef
 	cleanAfter []string
 	network    *bool
 	outputs    []string
 	overlay    bool
+	steps      []*Step
 	line       string // "file.go:NN" of the .Job(...) call site
+}
+
+type secretRef struct {
+	name    string
+	fromEnv string
 }
 
 // Step is one command within a job.
@@ -64,6 +71,24 @@ func (w *Workflow) Job(id string) *Job {
 
 // Jobs returns the defined jobs (read-only use by Main/graph).
 func (w *Workflow) Jobs() []*Job { return w.jobs }
+
+// Var sets a workflow-level variable, merged into every job's environment.
+// Job-level Env overrides a workflow Var on key collision.
+func (w *Workflow) Var(key, val string) *Workflow {
+	if w.vars == nil {
+		w.vars = map[string]string{}
+	}
+	w.vars[key] = val
+	return w
+}
+
+// Vars sets multiple workflow-level variables at once.
+func (w *Workflow) Vars(kv map[string]string) *Workflow {
+	for k, v := range kv {
+		w.Var(k, v)
+	}
+	return w
+}
 
 // Preheat registers warm-up work (image pull + optional cache-priming command)
 // to run concurrently before the DAG executes, so jobs don't stall on cold
@@ -100,6 +125,22 @@ func (j *Job) NeedsID(ids ...string) *Job {
 
 // Env sets an environment variable for all steps in the job.
 func (j *Job) Env(key, val string) *Job { j.env[key] = val; return j }
+
+// Secret exposes a secret env var to the job's steps, resolved at run time from
+// the host environment variable of the same name. Secret values are masked in
+// all log output, excluded from the compiled plan JSON, and contribute to the
+// job's cache/resume fingerprint only via a non-reversible hash.
+func (j *Job) Secret(name string) *Job {
+	j.secrets = append(j.secrets, secretRef{name: name, fromEnv: name})
+	return j
+}
+
+// SecretFrom is like Secret but reads the value from a differently-named host
+// environment variable (fromEnv) and exposes it to steps as name.
+func (j *Job) SecretFrom(name, fromEnv string) *Job {
+	j.secrets = append(j.secrets, secretRef{name: name, fromEnv: fromEnv})
+	return j
+}
 
 // Network enables (true) or disables (false) container networking for this
 // image job. When unset, the engine default (network on) applies.

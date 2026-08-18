@@ -54,6 +54,11 @@ func Validate(p *compiler.RunPlan, lines map[string]string) []Diagnostic {
 				diags = append(diags, Diagnostic{Loc: loc(j.ID), Msg: fmt.Sprintf("job %q step %q has no run command", j.ID, s.ID)})
 			}
 		}
+		for _, sec := range j.Secrets {
+			if sec.Name == "" {
+				diags = append(diags, Diagnostic{Loc: loc(j.ID), Msg: fmt.Sprintf("job %q has a secret with an empty name", j.ID)})
+			}
+		}
 		// needs resolution + self-ref.
 		for _, n := range j.Needs {
 			if n == j.ID {

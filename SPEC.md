@@ -50,6 +50,7 @@ and a live terminal dashboard.
    ├─ resume (job fingerprint cache)     pkg: internal/cache
    ├─ step cache (content-addressed)     pkg: internal/cache
    ├─ change detection (git)             pkg: internal/changed
+   ├─ variables & secrets (mask/resolve) pkg: internal/secrets
    ├─ runners (native / container /       pkg: internal/runner
    │           overlay), engine-agnostic
    ├─ live logs / quiet mode             pkg: internal/logs
@@ -103,6 +104,7 @@ func main() {
 | `flow.New(name) *Workflow` | Start a workflow. |
 | `(*Workflow) Job(id) *Job` | Add a job; returns it for chaining. Order preserved. |
 | `(*Workflow) Preheat(Preheat) *Workflow` | Register warm-up work (image pull + optional cache-priming command) run concurrently before the DAG. |
+| `(*Workflow) Var(k, v)` / `Vars(map)` | Workflow-level variables merged into every job's env (job `Env` overrides on collision). |
 | `(*Workflow) Jobs()`, `Preheats()`, `Lines()` | Introspection (used by the runner/graph/diagnostics). |
 
 ### 3.3 Job builders (fluent, chainable)
@@ -115,6 +117,8 @@ func main() {
 | `Image(ref) *Job` | Run the job in a container image; sets runs-on to `container`. |
 | `RunsOn(label) *Job` | Set a runs-on label (advisory; runner is selected by `Image`). |
 | `Env(key, val) *Job` | Set a job-scoped environment variable for all steps. |
+| `Secret(name) *Job` | Expose a secret env var, resolved from the host env var of the same name. Masked in logs, excluded from the plan JSON, fingerprinted non-reversibly. |
+| `SecretFrom(name, fromEnv) *Job` | Like `Secret` but reads the value from a differently-named host env var. |
 | `Network(enabled bool) *Job` | Explicit container networking (true=on, false=isolated). |
 | `Offline() *Job` | Shorthand for `Network(false)` → `--network none`. |
 | `Cache(opts ...CacheOption) *Job` | Attach cache inputs/outputs to the **most recent** step. |
@@ -152,6 +156,7 @@ All entry points accept these flags:
 | `--resume` | Skip jobs whose fingerprint matches a prior success; restore their outputs. |
 | `--engine <docker\|podman\|apple>` | Container engine for image jobs (default `docker`). |
 | `--mount <spec>` | Extra container volume (repeatable), e.g. `vol:/root/.cache`. |
+| `--var <K=V>` | Set/override a workflow variable (repeatable). |
 | `--no-preheat` | Skip preheating. |
 | `--tui` | Force the live dashboard on. |
 | `--no-tui` | Force streaming logs (overrides a program that defaults to the TUI). |
@@ -197,6 +202,7 @@ A workflow fails to compile (exit 1, with `file:line` diagnostics and
 - Job with no `runs-on`.
 - Job with no steps.
 - Step with no run command.
+- A secret with an empty name.
 - `needs` self-reference.
 - `needs` referencing an unknown job.
 - A dependency **cycle** (reported as a path, e.g. `x -> y -> x`).
@@ -251,6 +257,48 @@ Before the DAG runs, registered `Preheat` specs execute **concurrently**: pull
 the image, optionally run a warm command (mounting shared volumes) to prime
 caches. Preheat is **advisory** — failures warn but never fail the build.
 Skipped with `--no-preheat`.
+
+### 6.5 Variables & secrets
+
+**Variables** are plain configuration values:
+
+- **Workflow vars** — `(*Workflow) Var/Vars`, merged into every job's
+  environment.
+- **Job env** — `(*Job) Env`, job-scoped; overrides a workflow var on key
+  collision.
+- **CLI overrides** — `--var K=V` (repeatable) override workflow vars at run
+  time.
+- Precedence (low → high): workflow vars < job env < resolved secrets. All are
+  exported to every step as environment variables.
+
+**Secrets** are sensitive values that are never hardcoded in the pipeline:
+
+- Declared by name with `(*Job) Secret(name)` or `SecretFrom(name, fromEnv)`.
+- **Resolved at run time** from the host process environment (`fromEnv`,
+  defaulting to `name`) — the value never lives in the pipeline source or the
+  compiled plan.
+- **Fail-fast:** if a required secret is absent from the host environment, the
+  job fails immediately *before any step runs* (reported as
+  `missing required secret(s): [...]`).
+- **Masked** in all streaming log output — every occurrence of a secret value is
+  replaced with `***` (values shorter than 4 chars are left alone to avoid
+  noise).
+- **Excluded from the compiled plan JSON** (`--compile` serializes only the
+  secret *references* — names and source env var — never values).
+- **Cache-safe:** secret values enter step-cache keys and resume fingerprints
+  only as **non-reversible SHA-256 fingerprints**, so changing a secret
+  invalidates caches without the plaintext ever being hashed or stored.
+
+Example:
+
+```go
+wf := flow.New("deploy").Var("REGION", "eu-west")
+
+wf.Job("release").
+    Secret("NPM_TOKEN").                    // from $NPM_TOKEN
+    SecretFrom("AWS_KEY", "AWS_ACCESS_KEY_ID").
+    Run("publish", "npm publish")           // $REGION, $NPM_TOKEN, $AWS_KEY set
+```
 
 ---
 
@@ -344,8 +392,8 @@ Prioritized from the internal audit:
 - **Robustness:** per-job/step **timeouts** and **retries**; container cleanup
   on cancellation (named containers + kill); close log pipe writers (goroutine
   leak); preserve executable bits on restore.
-- **Features:** secrets (masked, excluded from the plan JSON); step-level env;
-  named concurrency groups; persistent per-run log capture; cache GC/eviction.
+- **Features:** step-level env overrides; named concurrency groups; persistent
+  per-run log capture; cache GC/eviction.
 - **Performance:** single-walk, parallel, cross-job-deduped input hashing;
   stat-first step-cache check.
 - **Platform:** remote runners / distributed execution.

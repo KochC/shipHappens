@@ -50,6 +50,12 @@ func c(color, s string) string {
 // across goroutines so parallel job output doesn't interleave mid-line. In quiet
 // mode it discards output (the TUI shows status instead).
 func Prefixed(job string) io.Writer {
+	return MaskedPrefixed(job, nil)
+}
+
+// MaskedPrefixed is like Prefixed but applies mask to every line before printing
+// (used to redact secret values). A nil mask is a no-op.
+func MaskedPrefixed(job string, mask func(string) string) io.Writer {
 	if quiet {
 		return io.Discard
 	}
@@ -58,8 +64,12 @@ func Prefixed(job string) io.Writer {
 		sc := bufio.NewScanner(pr)
 		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for sc.Scan() {
+			line := sc.Text()
+			if mask != nil {
+				line = mask(line)
+			}
 			mu.Lock()
-			fmt.Fprintf(out, "%s %s\n", c(cyan, "["+job+"]"), sc.Text())
+			fmt.Fprintf(out, "%s %s\n", c(cyan, "["+job+"]"), line)
 			mu.Unlock()
 		}
 	}()

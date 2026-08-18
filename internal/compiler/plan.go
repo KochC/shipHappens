@@ -5,7 +5,18 @@ package compiler
 // author-facing DSL types.
 type RunPlan struct {
 	Name string
+	// Vars are workflow-level variables merged into every job's environment
+	// (job Env overrides on key collision). Serialized in the compiled plan.
+	Vars map[string]string
 	Jobs []JobPlan
+}
+
+// SecretRef names a secret a job requires. The value is resolved at run time
+// from the host process environment (from FromEnv, defaulting to the secret
+// Name) — it is never stored in the plan. Secrets are masked in all output.
+type SecretRef struct {
+	Name    string // env var name exposed to the job's steps
+	FromEnv string // host env var to read from; defaults to Name if empty
 }
 
 // JobPlan is a single node in the execution DAG.
@@ -15,6 +26,7 @@ type JobPlan struct {
 	Image      string // container image; if set, job runs in a container (RunsOn="container")
 	Needs      []string
 	Env        map[string]string
+	Secrets    []SecretRef // secret env vars, resolved from host env at run time
 	Steps      []StepPlan
 	CleanAfter []string // path globs deleted after the job completes (prune build intermediates)
 	// Network controls container networking for image jobs. nil = engine

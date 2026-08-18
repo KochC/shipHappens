@@ -17,6 +17,7 @@ import (
 	"github.com/chris/shiphappens/internal/graph"
 	"github.com/chris/shiphappens/internal/logs"
 	"github.com/chris/shiphappens/internal/runner"
+	"github.com/chris/shiphappens/internal/secrets"
 )
 
 // Options configure a run.
@@ -33,6 +34,8 @@ type Options struct {
 	// Resume skips jobs whose fingerprint matches a prior successful run,
 	// restoring their declared Outputs instead of re-executing (incremental).
 	Resume bool
+	// Resolver resolves/masks secrets; defaults to the host environment.
+	Resolver *secrets.Resolver
 }
 
 // EventKind enumerates lifecycle events.
@@ -84,6 +87,8 @@ type scheduler struct {
 	cacheCnt int
 	resumeN  int
 
+	resolver *secrets.Resolver
+
 	sem chan struct{}
 	wg  sync.WaitGroup
 }
@@ -105,6 +110,10 @@ func Run(ctx context.Context, plan *compiler.RunPlan, opts Options) Result {
 		fps:      map[string]string{},
 		skipped:  map[string]bool{},
 		sem:      make(chan struct{}, opts.MaxPar),
+		resolver: secrets.New(),
+	}
+	if opts.Resolver != nil {
+		s.resolver = opts.Resolver
 	}
 	if !opts.NoCache {
 		if st, err := cache.Open(); err == nil {
@@ -211,11 +220,29 @@ func (s *scheduler) fingerprint(job *compiler.JobPlan) string {
 	}
 	s.mu.Unlock()
 
+	// Env fed to the fingerprint = workflow vars + job env. Secrets are added
+	// only as non-reversible fingerprints so a changed secret invalidates the
+	// cache without the value ever being hashed/stored in plaintext.
+	fpEnv := map[string]string{}
+	for k, v := range s.plan.Vars {
+		fpEnv[k] = v
+	}
+	for k, v := range job.Env {
+		fpEnv[k] = v
+	}
+	for _, sec := range job.Secrets {
+		if v, ok := s.resolver.Lookup(sec); ok {
+			fpEnv["__secret:"+sec.Name] = secrets.Fingerprint(v)
+		} else {
+			fpEnv["__secret:"+sec.Name] = "absent"
+		}
+	}
+
 	fp, err := cache.JobFingerprint(cache.JobFingerprintInput{
 		JobID:        job.ID,
 		Image:        job.Image,
 		StepCommands: cmds,
-		Env:          job.Env,
+		Env:          fpEnv,
 		Workdir:      s.opts.Workdir,
 		InputGlobs:   inputs,
 		UpstreamFPs:  ups,
@@ -253,13 +280,43 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	}
 
 	run := s.runnerFor(job)
-	out := logs.Prefixed(job.ID)
+
+	// Resolve effective env (workflow vars + job env + secrets) and fail fast
+	// if any required secret is missing from the host environment.
+	if missing := s.resolver.Missing(job); len(missing) > 0 {
+		logs.Failure("✗ [%s] missing required secret(s): %v", job.ID, missing)
+		s.mu.Lock()
+		s.done[job.ID] = true
+		s.failed[job.ID] = true
+		s.anyFail = true
+		s.cancel()
+		s.mu.Unlock()
+		s.emit(Event{Kind: JobFinished, Job: job.ID, OK: false})
+		s.launch(ctx)
+		return
+	}
+	effEnv, secretVals := s.resolver.Effective(s.plan.Vars, job.Env, job)
+	masker := secrets.NewMasker(secretVals)
+	// cacheEnv is used for step-cache keys: identical to effEnv but with secret
+	// values replaced by non-reversible fingerprints, so plaintext secrets never
+	// enter a cache key.
+	cacheEnv := map[string]string{}
+	for k, v := range effEnv {
+		cacheEnv[k] = v
+	}
+	for _, sec := range job.Secrets {
+		if v, ok := effEnv[sec.Name]; ok {
+			cacheEnv[sec.Name] = secrets.Fingerprint(v)
+		}
+	}
+
+	out := logs.MaskedPrefixed(job.ID, masker.Mask)
 	jobFailed := false
 	jobStart := time.Now()
 	s.emit(Event{Kind: JobStarted, Job: job.ID})
 
 	for _, step := range job.Steps {
-		cached, ok := s.execStep(ctx, run, job, step, out)
+		cached, ok := s.execStep(ctx, run, job, step, effEnv, cacheEnv, out)
 		if cached {
 			continue
 		}
@@ -306,11 +363,12 @@ func (s *scheduler) cleanAfter(job *compiler.JobPlan) {
 	}
 }
 
-// execStep runs one step (consulting cache). Returns (cachedHit, ok).
-func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compiler.JobPlan, step compiler.StepPlan, out io.Writer) (cached, ok bool) {
+// execStep runs one step (consulting cache). Returns (cachedHit, ok). effEnv is
+// passed to the runner; cacheEnv (secrets fingerprinted) is used for cache keys.
+func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compiler.JobPlan, step compiler.StepPlan, effEnv, cacheEnv map[string]string, out io.Writer) (cached, ok bool) {
 	s.emit(Event{Kind: StepStarted, Job: job.ID, Step: step.ID})
 	if s.store != nil && step.Cache != nil {
-		key, err := cache.HashInputs(step.Run, s.opts.Workdir, job.Env, step.Cache.Inputs)
+		key, err := cache.HashInputs(step.Run, s.opts.Workdir, cacheEnv, step.Cache.Inputs)
 		if err == nil && s.store.Has(key) {
 			_ = s.store.Restore(key, s.opts.Workdir)
 			logs.Step(job.ID, step.ID, "cached 0.00s", true, true)
@@ -320,7 +378,7 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Cached: true})
 			return true, true
 		}
-		res := run.Run(ctx, step, s.opts.Workdir, job.Env, out)
+		res := run.Run(ctx, step, s.opts.Workdir, effEnv, out)
 		s.mu.Lock()
 		s.ranCnt++
 		s.mu.Unlock()
@@ -337,7 +395,7 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 		return false, true
 	}
 
-	res := run.Run(ctx, step, s.opts.Workdir, job.Env, out)
+	res := run.Run(ctx, step, s.opts.Workdir, effEnv, out)
 	s.mu.Lock()
 	s.ranCnt++
 	s.mu.Unlock()

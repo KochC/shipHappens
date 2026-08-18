@@ -71,3 +71,19 @@ network-heavy; declaring `node_modules` as the install job's `Outputs` lets
 > by the container into the mounted tree and are git-ignored. `--no-tui` shows
 > the real tool output when a job fails.
 
+## secrets-app — variables & secrets
+
+`demos/secrets-app/` — a deploy pipeline that uses a workflow **variable**
+(`REGION`) and a **secret** (`DEPLOY_TOKEN`) sourced from the host environment.
+
+```bash
+DEPLOY_TOKEN=sk-example-123456 go run ./demos/secrets-app        # succeeds; token shown as ***
+go run ./demos/secrets-app                                       # missing secret → fails fast
+DEPLOY_TOKEN=sk-example-123456 go run ./demos/secrets-app --var REGION=us-east
+DEPLOY_TOKEN=sk-example-123456 go run ./demos/secrets-app --compile plan.json  # value NOT in plan
+```
+
+Shows: variable injection + `--var` override, secret masking (`***`) in output,
+fail-fast on a missing secret, and exclusion of the secret value from the
+compiled plan JSON.
+

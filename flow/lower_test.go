@@ -121,3 +121,39 @@ func TestCompileValidAndInvalid(t *testing.T) {
 		t.Fatalf("expected *CompileError, got %T", err)
 	}
 }
+
+func TestLowerVarsAndSecrets(t *testing.T) {
+	wf := New("W").Var("REGION", "eu").Vars(map[string]string{"TIER": "dev"})
+	wf.Job("a").
+		Secret("API_TOKEN").
+		SecretFrom("DB_PASS", "POSTGRES_PASSWORD").
+		Run("s", "x")
+
+	p := wf.ToPlan()
+	if p.Vars["REGION"] != "eu" || p.Vars["TIER"] != "dev" {
+		t.Fatalf("workflow vars not lowered: %+v", p.Vars)
+	}
+	secs := p.Jobs[0].Secrets
+	if len(secs) != 2 {
+		t.Fatalf("expected 2 secrets, got %d", len(secs))
+	}
+	if secs[0].Name != "API_TOKEN" || secs[0].FromEnv != "API_TOKEN" {
+		t.Errorf("Secret lowering wrong: %+v", secs[0])
+	}
+	if secs[1].Name != "DB_PASS" || secs[1].FromEnv != "POSTGRES_PASSWORD" {
+		t.Errorf("SecretFrom lowering wrong: %+v", secs[1])
+	}
+}
+
+func TestParseKVFlag(t *testing.T) {
+	m := parseKV([]string{"A=1", "B=two=parts", "noeq", "=noval"})
+	if m["A"] != "1" || m["B"] != "two=parts" {
+		t.Fatalf("parseKV wrong: %+v", m)
+	}
+	if _, ok := m["noeq"]; ok {
+		t.Error("entry without '=' should be ignored")
+	}
+	if parseKV(nil) != nil {
+		t.Error("empty input should return nil")
+	}
+}

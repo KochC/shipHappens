@@ -51,6 +51,7 @@ type runOpts struct {
 	changedSet  bool
 	changedRef  string
 	mounts      []string
+	vars        map[string]string
 }
 
 // getwd is the injection point for the working directory (overridable in tests).
@@ -61,6 +62,7 @@ func parseFlags(name string, argv []string) runOpts {
 	var o runOpts
 	changedVal := &optString{}
 	mounts := &sliceFlag{}
+	vars := &sliceFlag{}
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	fs.BoolVar(&o.graphOnly, "graph", false, "print the execution graph and exit")
 	fs.StringVar(&o.jobFlag, "job", "", "run only this job (and its dependencies)")
@@ -72,12 +74,38 @@ func parseFlags(name string, argv []string) runOpts {
 	fs.BoolVar(&o.noTUI, "no-tui", false, "force streaming logs even if the program defaults to the TUI")
 	fs.BoolVar(&o.resume, "resume", false, "skip jobs whose fingerprint matches a prior successful run (incremental)")
 	fs.Var(mounts, "mount", "extra container volume spec for image jobs (repeatable), e.g. vol:/root/.platformio")
+	fs.Var(vars, "var", "set/override a workflow variable (repeatable), e.g. --var REGION=eu")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(argv)
 	o.changedSet = changedVal.set
 	o.changedRef = changedVal.val
 	o.mounts = []string(*mounts)
+	o.vars = parseKV([]string(*vars))
 	return o
+}
+
+// parseKV parses "K=V" pairs into a map (last value wins; malformed entries
+// without '=' are ignored).
+func parseKV(pairs []string) map[string]string {
+	if len(pairs) == 0 {
+		return nil
+	}
+	m := map[string]string{}
+	for _, p := range pairs {
+		if i := indexByte(p, '='); i > 0 {
+			m[p[:i]] = p[i+1:]
+		}
+	}
+	return m
+}
+
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
 }
 
 // osExit is the process-exit indirection (overridable in tests).
@@ -113,6 +141,15 @@ func RunWithTUIResume(w *Workflow) {
 // calls os.Exit, so it is fully testable.
 func run(w *Workflow, o runOpts) int {
 	raw := w.ToPlan()
+	// CLI --var overrides merge into (and override) workflow vars.
+	if len(o.vars) > 0 {
+		if raw.Vars == nil {
+			raw.Vars = map[string]string{}
+		}
+		for k, v := range o.vars {
+			raw.Vars[k] = v
+		}
+	}
 	plan, err := compile(raw, w.Lines())
 	if err != nil {
 		logs.Failure("%s", err.Error())
