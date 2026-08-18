@@ -1,0 +1,123 @@
+/// Ship Happens — pipeline schema for Pkl.
+///
+/// Import this module to author a pipeline in Pkl (a typed, sandboxed config
+/// language). Evaluating a pipeline to JSON (`pkl eval -f json`) produces the
+/// exact RunPlan shape Ship Happens consumes:
+///
+///     amends "ship.pkl"
+///     name = "CI"
+///     jobs { … }
+///
+/// Then run it with:  ship run pipeline.pkl   (or: go run ./cmd/ship run …)
+@ModuleInfo { minPklVersion = "0.25.0" }
+module ship
+
+/// Workflow name.
+name: String
+
+/// Workflow-level variables, merged into every job's environment
+/// (job `env` overrides on key collision).
+vars: Mapping<String, String>?
+
+/// The jobs in the pipeline. Keys are job ids; the id is injected automatically.
+jobs: Mapping<String, Job>
+
+/// A secret required by a job. Resolved at run time from the host environment
+/// (`fromEnv`, defaulting to `name`) — the value is never stored in the plan.
+class Secret {
+  /// Env var name exposed to the job's steps.
+  name: String
+  /// Host env var to read from; defaults to `name`.
+  fromEnv: String?
+}
+
+/// Cache hints for a step's result (content-addressed step cache).
+class Cache {
+  /// File globs whose content contributes to the cache key.
+  inputs: Listing<String>?
+  /// File globs stored on miss and restored on hit.
+  outputs: Listing<String>?
+}
+
+/// One executable step within a job (`sh -c run`).
+class Step {
+  /// Step name/id.
+  id: String
+  /// Shell command.
+  run: String
+  /// Optional cache hint.
+  cache: Cache?
+}
+
+/// A DAG node. Runs its steps sequentially on one runner.
+class Job {
+  /// Execution label; informational. The runner is selected by `image`.
+  runsOn: String = "native"
+  /// Container image; when set, the job runs in a container.
+  image: String?
+  /// Ids of jobs this one depends on.
+  needs: Listing<String>?
+  /// Job-scoped environment variables.
+  env: Mapping<String, String>?
+  /// Secrets exposed to this job's steps.
+  secrets: Listing<Secret>?
+  /// The steps to run.
+  steps: Listing<Step>
+  /// Path globs deleted after the job succeeds (prune build intermediates).
+  cleanAfter: Listing<String>?
+  /// Container networking: null = engine default, true = on, false = isolated.
+  network: Boolean?
+  /// File globs persisted as the job's result for `--resume`.
+  outputs: Listing<String>?
+  /// Run a container job in an overlayfs upper layer (Linux; graceful fallback).
+  overlay: Boolean = false
+}
+
+/// Render to the RunPlan JSON shape Ship Happens consumes. `pkl eval -f json`
+/// on a module that amends `ship.pkl` yields exactly this object.
+output {
+  renderer = new JsonRenderer {}
+  value = new Dynamic {
+    name = module.name
+    when (module.vars != null) { vars = module.vars }
+    jobs = new Listing {
+      for (id, j in module.jobs) {
+        new Dynamic {
+          ["id"] = id
+          ["runsOn"] = j.runsOn
+          when (j.image != null) { ["image"] = j.image }
+          when (j.needs != null) { ["needs"] = j.needs }
+          when (j.env != null) { ["env"] = j.env }
+          when (j.secrets != null) {
+            ["secrets"] = new Listing {
+              for (s in j.secrets!!) {
+                new Dynamic {
+                  ["name"] = s.name
+                  when (s.fromEnv != null) { ["fromEnv"] = s.fromEnv }
+                }
+              }
+            }
+          }
+          ["steps"] = new Listing {
+            for (st in j.steps) {
+              new Dynamic {
+                ["id"] = st.id
+                ["run"] = st.run
+                when (st.cache != null) {
+                  ["cache"] = new Dynamic {
+                    when (st.cache.inputs != null) { ["inputs"] = st.cache.inputs }
+                    when (st.cache.outputs != null) { ["outputs"] = st.cache.outputs }
+                  }
+                }
+              }
+            }
+          }
+          when (j.cleanAfter != null) { ["cleanAfter"] = j.cleanAfter }
+          when (j.network != null) { ["network"] = j.network }
+          when (j.outputs != null) { ["outputs"] = j.outputs }
+          when (j.overlay) { ["overlay"] = true }
+        }
+      }
+    }
+  }
+}

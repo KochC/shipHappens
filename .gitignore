@@ -12,3 +12,6 @@ demos/**/.pytest_cache/
 demos/**/*.egg-info/
 demos/**/.gocache/
 demos/**/.gomodcache/
+
+# built ship CLI in demos
+demos/**/ship

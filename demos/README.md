@@ -87,3 +87,16 @@ Shows: variable injection + `--var` override, secret masking (`***`) in output,
 fail-fast on a missing secret, and exclusion of the secret value from the
 compiled plan JSON.
 
+
+## pkl-app — authoring in Pkl (not Go)
+
+`demos/pkl-app/` — the same pipeline shape authored in **Pkl** (typed, sandboxed
+config; not Python's pickle). Requires the `pkl` CLI.
+
+```bash
+DEPLOY_TOKEN=sk-example-123 go run ./cmd/ship run demos/pkl-app/pipeline.pkl
+go run ./cmd/ship validate demos/pkl-app/pipeline.pkl
+```
+
+Evaluates to the same RunPlan JSON as Go pipelines and runs through the identical
+engine. See `demos/pkl-app/README.md` and the schema at `pkl/ship.pkl`.

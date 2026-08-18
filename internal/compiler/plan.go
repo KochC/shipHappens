@@ -2,56 +2,57 @@ package compiler
 
 // RunPlan is the immutable, validated intermediate representation produced by
 // the compiler. The scheduler and runners consume this and never touch the
-// author-facing DSL types.
+// author-facing DSL types. JSON tags define the stable on-disk plan format used
+// by --compile and by external front-ends (e.g. Pkl) that evaluate to this shape.
 type RunPlan struct {
-	Name string
+	Name string `json:"name"`
 	// Vars are workflow-level variables merged into every job's environment
 	// (job Env overrides on key collision). Serialized in the compiled plan.
-	Vars map[string]string
-	Jobs []JobPlan
+	Vars map[string]string `json:"vars,omitempty"`
+	Jobs []JobPlan         `json:"jobs"`
 }
 
 // SecretRef names a secret a job requires. The value is resolved at run time
 // from the host process environment (from FromEnv, defaulting to the secret
 // Name) — it is never stored in the plan. Secrets are masked in all output.
 type SecretRef struct {
-	Name    string // env var name exposed to the job's steps
-	FromEnv string // host env var to read from; defaults to Name if empty
+	Name    string `json:"name"`              // env var name exposed to the job's steps
+	FromEnv string `json:"fromEnv,omitempty"` // host env var to read from; defaults to Name if empty
 }
 
 // JobPlan is a single node in the execution DAG.
 type JobPlan struct {
-	ID         string
-	RunsOn     string
-	Image      string // container image; if set, job runs in a container (RunsOn="container")
-	Needs      []string
-	Env        map[string]string
-	Secrets    []SecretRef // secret env vars, resolved from host env at run time
-	Steps      []StepPlan
-	CleanAfter []string // path globs deleted after the job completes (prune build intermediates)
+	ID         string            `json:"id"`
+	RunsOn     string            `json:"runsOn,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	Needs      []string          `json:"needs,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+	Secrets    []SecretRef       `json:"secrets,omitempty"`
+	Steps      []StepPlan        `json:"steps"`
+	CleanAfter []string          `json:"cleanAfter,omitempty"`
 	// Network controls container networking for image jobs. nil = engine
 	// default (on). false = isolated (no network). true = network on.
-	Network *bool
+	Network *bool `json:"network,omitempty"`
 	// Outputs are file globs persisted for job-level resume (restored when a
 	// job is skipped because its fingerprint matched a prior successful run).
-	Outputs []string
+	Outputs []string `json:"outputs,omitempty"`
 	// Overlay, when true (container jobs only), runs the job with an overlayfs
 	// upperdir so its writes are captured as an isolated diff layer.
-	Overlay bool
+	Overlay bool `json:"overlay,omitempty"`
 }
 
 // StepPlan is one executable unit within a job.
 type StepPlan struct {
-	ID    string
-	Run   string
-	Cache *CacheSpec
+	ID    string     `json:"id"`
+	Run   string     `json:"run"`
+	Cache *CacheSpec `json:"cache,omitempty"`
 }
 
 // CacheSpec describes how a step's result may be cached. Only steps with a
-// CacheSpec are cached in M1 (explicit = safe).
+// CacheSpec are cached (explicit = safe).
 type CacheSpec struct {
-	Inputs  []string
-	Outputs []string
+	Inputs  []string `json:"inputs,omitempty"`
+	Outputs []string `json:"outputs,omitempty"`
 }
 
 // Job returns the JobPlan with the given id, or nil.

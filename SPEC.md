@@ -51,6 +51,7 @@ and a live terminal dashboard.
    ├─ step cache (content-addressed)     pkg: internal/cache
    ├─ change detection (git)             pkg: internal/changed
    ├─ variables & secrets (mask/resolve) pkg: internal/secrets
+   ├─ plan file loading (.pkl / .json)   pkg: internal/planfile
    ├─ runners (native / container /       pkg: internal/runner
    │           overlay), engine-agnostic
    ├─ live logs / quiet mode             pkg: internal/logs
@@ -139,6 +140,39 @@ Cache options: `flow.Inputs(globs...)`, `flow.Outputs(globs...)`.
 | `flow.Main(w)` | Parse CLI flags, compile, run; exits with status. Streams logs. |
 | `flow.RunWithTUI(w)` | Like `Main` but defaults the TUI on (respects `--no-tui`). |
 | `flow.RunWithTUIResume(w)` | Defaults TUI **and** resume on (respects `--no-tui`). |
+| `flow.RunFile(path, argv) int` | Load, validate, and run a plan file (`.pkl`/`.json`); honors CLI flags. |
+| `flow.MainFile(path, argv)` | Like `RunFile` but exits with the status. |
+
+### 3.5 Alternative authoring: Pkl
+
+Pipelines may be authored in **[Pkl](https://pkl-lang.org)** — a typed,
+sandboxed configuration language — instead of Go, using the importable schema at
+`pkl/ship.pkl`:
+
+```pkl
+amends "ship.pkl"
+name = "CI"
+vars { ["REGION"] = "eu-west" }
+jobs {
+  ["build"] { steps { new { id = "compile"; run = "make" } } }
+  ["test"]  { needs { "build" }; steps { new { id = "unit"; run = "make test" } } }
+}
+```
+
+Pkl is a **declarative config language**, not code — evaluation has no arbitrary
+I/O or code execution. (It is unrelated to Python's `pickle` serialization
+despite the homophone.) A `.pkl` pipeline is evaluated to the RunPlan JSON via
+`pkl eval -f json` and then loaded through the **same** validator, scheduler, and
+runners as Go-authored pipelines. Requires the `pkl` CLI on PATH.
+
+Run either format with the standalone CLI:
+
+```
+ship run pipeline.pkl              # evaluate Pkl → run
+ship run plan.json                 # run a compiled JSON plan (from --compile)
+ship validate pipeline.pkl         # compile + validate only
+ship pipeline.pkl --job test --tui # shorthand for `ship run`, with flags
+```
 
 ---
 
@@ -210,9 +244,13 @@ A workflow fails to compile (exit 1, with `file:line` diagnostics and
 ### 5.3 Compiled-plan artifact
 
 `--compile <path>` emits the validated `RunPlan` as JSON — a deterministic,
-inspectable, language-neutral artifact ("Terraform plan, but for CI"). It is the
-**only** supported serialized plan format. (Executable/binary plan formats such
-as pickle are explicitly rejected for safety and reviewability.)
+inspectable, language-neutral artifact ("Terraform plan, but for CI"). It has a
+stable, JSON-tagged schema (lowercase, `omitempty`) and is the interchange
+format between authoring front-ends and the engine: both the Go DSL
+(`--compile`) and Pkl (`pkl eval -f json`) produce it, and `ship run <plan.json>`
+consumes it. Executable/binary plan formats (e.g. Python `pickle`) are
+explicitly rejected for safety and reviewability; Pkl is a safe, declarative
+config language, not executable serialization.
 
 ---
 

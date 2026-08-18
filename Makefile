@@ -66,5 +66,10 @@ ENGINE ?= docker
 integration:
 	SHIP_TEST_ENGINE=$(ENGINE) go test -tags=docker -run Integration ./internal/runner/ -v
 
+# Integration test for the real Pkl CLI (evaluates the demo pipeline). Gated
+# behind the 'pkl' build tag; skips if pkl is not installed.
+pkl-test:
+	go test -tags=pkl -run Integration ./internal/planfile/ -v
+
 clean:
 	rm -f $(COVER_PROFILE) coverage.html

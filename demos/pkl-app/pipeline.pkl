@@ -1,0 +1,65 @@
+/// Example Ship Happens pipeline authored in Pkl.
+///
+/// Run it:
+///
+///     ship run pipeline.pkl                 # needs the `pkl` CLI on PATH
+///     ship run pipeline.pkl --job test --tui
+///
+/// Evaluating to JSON yields the RunPlan Ship Happens consumes:
+///
+///     pkl eval -f json pipeline.pkl
+amends "../../pkl/ship.pkl"
+
+name = "Pkl CI"
+
+vars {
+  ["REGION"] = "eu-west"
+  ["APP"] = "widget-svc"
+}
+
+jobs {
+  ["build"] {
+    steps {
+      new {
+        id = "compile"
+        run = "echo building $APP for $REGION && sleep 0.6"
+        cache { inputs { "**/*.go" } }
+      }
+    }
+    outputs { "bin/**" }
+  }
+
+  ["test"] {
+    needs { "build" }
+    steps {
+      new {
+        id = "unit"
+        run = "echo testing $APP && sleep 0.8"
+      }
+    }
+  }
+
+  ["lint"] {
+    needs { "build" }
+    image = "golang:1.22-alpine"
+    steps {
+      new {
+        id = "vet"
+        run = "echo linting && sleep 0.5"
+      }
+    }
+  }
+
+  ["deploy"] {
+    needs { "test"; "lint" }
+    secrets {
+      new { name = "DEPLOY_TOKEN" }
+    }
+    steps {
+      new {
+        id = "push"
+        run = "echo deploying $APP to $REGION with token=$DEPLOY_TOKEN"
+      }
+    }
+  }
+}

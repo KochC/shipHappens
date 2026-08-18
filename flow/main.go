@@ -155,6 +155,21 @@ func run(w *Workflow, o runOpts) int {
 		logs.Failure("%s", err.Error())
 		return 1
 	}
+	return runCompiled(plan, w.preheat, o)
+}
+
+// runCompiled executes an already-validated plan. Shared by the Go DSL
+// front-end (run) and file-based front-ends (Pkl/JSON via cmd/ship).
+func runCompiled(plan *compiler.RunPlan, preheats []Preheat, o runOpts) int {
+	// CLI --var overrides (for file-loaded plans, applied here too).
+	if len(o.vars) > 0 {
+		if plan.Vars == nil {
+			plan.Vars = map[string]string{}
+		}
+		for k, v := range o.vars {
+			plan.Vars[k] = v
+		}
+	}
 
 	logs.Success("✓ compiled: %s — %d jobs, %d steps, DAG valid", plan.Name, len(plan.Jobs), stepCount(plan))
 	fmt.Println()
@@ -211,8 +226,8 @@ func run(w *Workflow, o runOpts) int {
 	wd, _ := getwd()
 
 	// Preheat: pull images + prime shared caches concurrently before the DAG.
-	if !o.noPreheat && len(w.preheat) > 0 {
-		runPreheats(ctx, w.preheat, o.engine, wd, o.mounts)
+	if !o.noPreheat && len(preheats) > 0 {
+		runPreheats(ctx, preheats, o.engine, wd, o.mounts)
 		fmt.Println()
 	}
 
