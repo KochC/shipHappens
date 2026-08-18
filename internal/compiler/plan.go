@@ -93,6 +93,12 @@ type JobPlan struct {
 	// Services are sidecar containers started before the job's steps and torn
 	// down after. Reachable from container-job steps by their service name.
 	Services []ServiceSpec `json:"services,omitempty"`
+	// Matrix, when non-empty, fans this job out over the cartesian product of the
+	// named dimensions. Each combination becomes a job with id "<id>/<suffix>"
+	// and the dimension values injected as UPPERCASED env vars. Dependents on a
+	// matrix job depend on all of its expansions. Expanded at plan-load time
+	// (see RunPlan.ExpandMatrix), so schedulers/runners never see a Matrix.
+	Matrix map[string][]string `json:"matrix,omitempty"`
 }
 
 // ServiceSpec is a sidecar container for a job (e.g. a database).

@@ -147,3 +147,35 @@ func TestExecOutputExitError(t *testing.T) {
 		t.Fatal("expected exit error")
 	}
 }
+
+func TestDecodeExpandsMatrix(t *testing.T) {
+	// A matrix job in JSON must be fanned out by Decode, and a dependent that
+	// needs the matrix job must be rewired to all expansions.
+	src := `{
+      "name": "M",
+      "jobs": [
+        {"id":"test","matrix":{"os":["linux","mac"],"go":["1.21","1.22"]},
+         "steps":[{"id":"info","run":"echo $OS $GO"}]},
+        {"id":"done","needs":["test"],"steps":[{"id":"s","run":"true"}]}
+      ]
+    }`
+	p, err := Decode([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 4 expansions + done = 5 jobs.
+	if len(p.Jobs) != 5 {
+		t.Fatalf("want 5 jobs after expansion, got %d", len(p.Jobs))
+	}
+	if p.Job("test/1.22-linux") == nil {
+		t.Error("missing matrix expansion test/1.22-linux")
+	}
+	j := p.Job("test/1.21-mac")
+	if j == nil || j.Env["OS"] != "mac" || j.Env["GO"] != "1.21" {
+		t.Errorf("expansion env wrong: %+v", j)
+	}
+	done := p.Job("done")
+	if len(done.Needs) != 4 {
+		t.Errorf("done should need all 4 expansions, got %v", done.Needs)
+	}
+}

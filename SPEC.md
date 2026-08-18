@@ -257,8 +257,11 @@ type StepPlan struct {
 type CacheSpec struct { Inputs, Outputs []string }
 ```
 
-Matrix is an authoring-time concept: the Go DSL and Pkl expand a matrix into N
-`JobPlan`s at compile/eval time, so the IR itself contains only expanded jobs.
+Matrix is an authoring-time concept. The Go DSL expands a matrix into N
+`JobPlan`s when it lowers to the IR. Pkl (and raw JSON) instead carry a `matrix`
+field on the job, which the plan loader expands via `RunPlan.ExpandMatrix()` at
+load time — one shared, frontend-agnostic expander. Either way, the validator,
+scheduler, and runners only ever see concrete, expanded jobs.
 
 ### 5.2 Static validation (all before execution)
 

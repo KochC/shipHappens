@@ -74,5 +74,7 @@ func Decode(data []byte) (*compiler.RunPlan, error) {
 	if p.Name == "" {
 		return nil, fmt.Errorf("invalid plan: missing name")
 	}
-	return &p, nil
+	// Fan out any matrix jobs (frontend-agnostic: Pkl and JSON pipelines carry a
+	// `matrix` on a job; the Go DSL expands equivalently before producing JSON).
+	return p.ExpandMatrix(), nil
 }

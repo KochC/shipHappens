@@ -131,7 +131,6 @@ job/step **continue-on-error**.
 go run ./demos/matrix-app
 go run ./demos/matrix-app --no-tui   # see per-step output
 
-# Pkl (the os×go matrix is expanded to four explicit test-* jobs, since Pkl
-# has no matrix primitive — the Go DSL expands it the same way at compile time):
+# Pkl (matrix is a first-class field — os×go fans out to four test/<go>-<os> jobs):
 ship run demos/matrix-app/pipeline.pkl --no-tui
 ```

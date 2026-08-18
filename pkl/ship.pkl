@@ -174,6 +174,11 @@ class Job {
   allow: Listing<String>?
   /// Sidecar services started before the job's steps and torn down after.
   services: Listing<Service>?
+  /// Fan this job out over the cartesian product of the named dimensions. Each
+  /// combination becomes a job "<id>/<v1>-<v2>-…" (dimension keys sorted) with
+  /// the values injected as UPPERCASED env vars (os=linux → $OS). Dependents on
+  /// a matrix job depend on all of its expansions. Expanded at load time.
+  matrix: Mapping<String, Listing<String>>?
 }
 
 
@@ -290,6 +295,7 @@ output {
               }
             }
           }
+          when (j.matrix != null) { ["matrix"] = j.matrix }
         }
       }
     }

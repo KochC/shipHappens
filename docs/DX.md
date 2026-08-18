@@ -296,35 +296,36 @@ dependents.
 
 ## 8. Matrix (fan-out)
 
-Pkl generates matrix jobs natively with `for` generators — one job per
-combination, values exposed as env vars:
+Declare a `matrix` on a job to fan it out over the cartesian product of the
+named dimensions — one job per combination, with each value injected as an
+UPPERCASED env var:
 
 ```pkl
-local oses = new Listing { "linux"; "mac" }
-local gos  = new Listing { "1.21"; "1.22" }
-
 jobs {
-  for (os in oses) {
-    for (go in gos) {
-      ["test-\(os)-\(go)"] = new Job {
-        env { ["OS"] = os; ["GO"] = go }
-        steps { new { id = "run"; run = "echo testing $OS with Go $GO && go test ./..." } }
-      }
+  ["test"] {
+    matrix {
+      ["os"] { "linux"; "mac" }
+      ["go"] { "1.21"; "1.22" }
     }
+    steps { new { id = "run"; run = "echo testing $OS with Go $GO && go test ./..." } }
   }
   ["report"] {
-    // depend on all expansions
-    needs { for (os in oses) { for (go in gos) { "test-\(os)-\(go)" } } }
+    needs { "test" }   // rewired to all four expansions automatically
     steps { new { id = "done"; run = "echo all matrix jobs passed" } }
   }
 }
 ```
 
-This produces `test-linux-1.21`, `test-linux-1.22`, `test-mac-1.21`,
-`test-mac-1.22` — run in parallel, each with `$OS`/`$GO` set.
+This produces `test/1.21-linux`, `test/1.21-mac`, `test/1.22-linux`,
+`test/1.22-mac` (dimension keys sorted; id is `<job>/<v…>`) — run in parallel,
+each with `$OS`/`$GO` set. Any job that `needs` a matrix job is automatically
+rewired to depend on **all** of its expansions. Expansion happens at plan-load
+time, so the validator, scheduler, and runners only ever see concrete jobs.
 
-> The Go DSL offers a dedicated `Matrix(dims)` helper that does the same
-> expansion automatically ([§13](#13-also-available-go-dsl--json)).
+> The Go DSL offers the equivalent `Matrix(dims)` helper
+> ([§13](#13-also-available-go-dsl--json)); both frontends produce identical
+> jobs. (Before `matrix` was a first-class field, Pkl users hand-wrote the
+> expansion with `for` generators — still valid, but no longer necessary.)
 
 ---
 
@@ -644,6 +645,7 @@ Authored by amending [`pkl/ship.pkl`](../pkl/ship.pkl).
 | `overlay` | `Boolean` | `false` | overlayfs upper-layer isolation. |
 | `timeoutSec` | `Int` | `0` | Whole-job timeout (0 = none). |
 | `continueOnError` | `Boolean` | `false` | Non-fatal job (fail-fast opt-out). |
+| `matrix` | `Mapping<String,Listing<String>>?` | — | Fan out over the cartesian product; expands to `id/<v…>` jobs with UPPERCASED env vars. |
 
 ### `Step`
 
