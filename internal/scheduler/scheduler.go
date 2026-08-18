@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +41,10 @@ type Options struct {
 	Resume bool
 	// Resolver resolves/masks secrets; defaults to the host environment.
 	Resolver *secrets.Resolver
+	// LogDir, when set, is a directory where each job's combined output is
+	// persisted as <jobID>.log (sanitized), so failures can be inspected after
+	// the run without re-running. Empty disables persistence.
+	LogDir string
 }
 
 // EventKind enumerates lifecycle events.
@@ -61,6 +66,61 @@ type Event struct {
 	OK       bool
 	Cached   bool
 	Duration time.Duration
+	// Failure detail (set on failing StepFinished / JobFinished events).
+	ExitCode int      // process exit code, when known (0 if not a script exit)
+	FailKind FailKind // classification of the failure
+	ErrMsg   string   // short error message
+	Tail     []string // last N lines of the step's combined output
+}
+
+// FailKind classifies why something failed, so UIs can show the cause at a
+// glance instead of a generic "failed".
+type FailKind int
+
+const (
+	FailNone       FailKind = iota
+	FailExit                // step exited non-zero
+	FailTimeout             // step or job wall-clock timeout
+	FailEgress              // request blocked by the egress allow-list
+	FailSecret              // a required secret was missing
+	FailDependency          // skipped/failed because an upstream job failed
+	FailSetup               // services/egress-proxy/invalid-if setup error
+)
+
+// String renders a FailKind as a short lowercase token.
+func (k FailKind) String() string {
+	switch k {
+	case FailExit:
+		return "exit"
+	case FailTimeout:
+		return "timeout"
+	case FailEgress:
+		return "egress"
+	case FailSecret:
+		return "secret"
+	case FailDependency:
+		return "dependency"
+	case FailSetup:
+		return "setup"
+	default:
+		return "none"
+	}
+}
+
+// Mark returns a single-glyph status mark for a FailKind (for compact UIs).
+func (k FailKind) Mark() string {
+	switch k {
+	case FailTimeout:
+		return "⏱"
+	case FailEgress:
+		return "⛔"
+	case FailSecret:
+		return "🔒"
+	case FailDependency:
+		return "◌"
+	default:
+		return "✗"
+	}
 }
 
 // Result summarizes a run.
@@ -88,6 +148,7 @@ type scheduler struct {
 	skipped  map[string]bool              // jobID -> resumed (skipped) this run
 	jobOut   map[string]map[string]string // jobID -> captured outputs
 	results  map[string]string            // jobID -> "success"|"failure"|"skipped"
+	jobFail  map[string]Event             // jobID -> last step-failure detail (kind/tail/exit)
 	anyFail  bool
 	ranCnt   int
 	cacheCnt int
@@ -117,6 +178,7 @@ func Run(ctx context.Context, plan *compiler.RunPlan, opts Options) Result {
 		skipped:  map[string]bool{},
 		jobOut:   map[string]map[string]string{},
 		results:  map[string]string{},
+		jobFail:  map[string]Event{},
 		sem:      make(chan struct{}, opts.MaxPar),
 		resolver: secrets.New(),
 	}
@@ -165,7 +227,7 @@ func (s *scheduler) launch(ctx context.Context) {
 			s.failed[id] = true
 			s.anyFail = true
 			logs.Failure("✗ [%s] skipped (dependency failed)", id)
-			s.emit(Event{Kind: JobSkipped, Job: id})
+			s.emit(Event{Kind: JobSkipped, Job: id, FailKind: FailDependency, ErrMsg: "an upstream dependency failed"})
 			continue
 		}
 		if !ready {
@@ -406,7 +468,7 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	// if any required secret is missing from the host environment.
 	if missing := s.resolver.Missing(job); len(missing) > 0 {
 		logs.Failure("✗ [%s] missing required secret(s): %v", job.ID, missing)
-		s.finishFailed(ctx, job)
+		s.finishFailed(ctx, job, failCause{FailSecret, fmt.Sprintf("missing required secret(s): %v", missing)})
 		return
 	}
 	effEnv, secretVals := s.resolver.Effective(s.plan.Vars, job.Env, job)
@@ -443,6 +505,13 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	}
 
 	out := logs.MaskedPrefixed(job.ID, masker.Mask)
+	// Persist this job's combined output to disk (masked) when a log dir is set.
+	if s.opts.LogDir != "" {
+		if lf := s.jobLogFile(job.ID); lf != nil {
+			defer lf.Close()
+			out = io.MultiWriter(out, maskWriter{w: lf, mask: masker.Mask})
+		}
+	}
 	jobFailed := false
 	jobStart := time.Now()
 	s.emit(Event{Kind: JobStarted, Job: job.ID})
@@ -504,13 +573,22 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 		s.cleanAfter(job)
 	}
 
-	s.emit(Event{Kind: JobFinished, Job: job.ID, OK: !jobFailed, Duration: time.Since(jobStart)})
+	jobEv := Event{Kind: JobFinished, Job: job.ID, OK: !jobFailed, Duration: time.Since(jobStart)}
+	if jobFailed {
+		s.mu.Lock()
+		if f, ok := s.jobFail[job.ID]; ok {
+			jobEv.FailKind, jobEv.ExitCode, jobEv.ErrMsg, jobEv.Tail, jobEv.Step = f.FailKind, f.ExitCode, f.ErrMsg, f.Tail, f.Step
+		}
+		s.mu.Unlock()
+	}
+	s.emit(jobEv)
 	s.launch(ctx)
 }
 
 // finishFailed marks a job failed (fail-fast), for the missing-secret and
-// invalid-if paths.
-func (s *scheduler) finishFailed(ctx context.Context, job *compiler.JobPlan) {
+// invalid-if paths. kind/msg describe the cause for UIs (FailNone/"" default to
+// a generic setup failure).
+func (s *scheduler) finishFailed(ctx context.Context, job *compiler.JobPlan, cause ...failCause) {
 	s.mu.Lock()
 	s.done[job.ID] = true
 	s.failed[job.ID] = true
@@ -518,8 +596,19 @@ func (s *scheduler) finishFailed(ctx context.Context, job *compiler.JobPlan) {
 	s.anyFail = true
 	s.cancel()
 	s.mu.Unlock()
-	s.emit(Event{Kind: JobFinished, Job: job.ID, OK: false})
+	ev := Event{Kind: JobFinished, Job: job.ID, OK: false, FailKind: FailSetup}
+	if len(cause) > 0 {
+		ev.FailKind = cause[0].kind
+		ev.ErrMsg = cause[0].msg
+	}
+	s.emit(ev)
 	s.launch(ctx)
+}
+
+// failCause carries a classified cause into finishFailed.
+type failCause struct {
+	kind FailKind
+	msg  string
 }
 
 // evalIf evaluates an `if` expression for a job/step. stepOutputs, when non-nil,
@@ -846,6 +935,8 @@ func (sc *stepCtx) snapshotCaptured() map[string]string {
 // passed to the runner; cacheEnv (secrets fingerprinted) is used for cache keys.
 func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compiler.JobPlan, step compiler.StepPlan, effEnv, cacheEnv map[string]string, out io.Writer) (cached, ok bool) {
 	s.emit(Event{Kind: StepStarted, Job: job.ID, Step: step.ID})
+	// Tee output through a tail capturer so a failure can surface its last lines.
+	tail := newTailWriter(out, tailLines)
 	if s.store != nil && step.Cache != nil {
 		key, err := cache.HashInputs(step.Run, s.opts.Workdir, cacheEnv, step.Cache.Inputs)
 		if err == nil && s.store.Has(key) {
@@ -857,10 +948,9 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Cached: true})
 			return true, true
 		}
-		res := s.runStep(ctx, run, step, effEnv, out)
+		res := s.runStep(ctx, run, step, effEnv, tail)
 		if res.Err != nil {
-			logs.Step(job.ID, step.ID, fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond)), false, false)
-			s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false, Duration: res.Duration})
+			s.emitStepFailure(ctx, job, step, res, tail)
 			return false, false
 		}
 		if err == nil {
@@ -871,15 +961,57 @@ func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compil
 		return false, true
 	}
 
-	res := s.runStep(ctx, run, step, effEnv, out)
+	res := s.runStep(ctx, run, step, effEnv, tail)
 	if res.Err != nil {
-		logs.Step(job.ID, step.ID, fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond)), false, false)
-		s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false, Duration: res.Duration})
+		s.emitStepFailure(ctx, job, step, res, tail)
 		return false, false
 	}
 	logs.Step(job.ID, step.ID, res.Duration.Round(time.Millisecond).String(), true, false)
 	s.emit(Event{Kind: StepFinished, Job: job.ID, Step: step.ID, OK: true, Duration: res.Duration})
 	return false, true
+}
+
+// tailLines is how many trailing output lines to retain per step for failures.
+const tailLines = 20
+
+// emitStepFailure logs a failing step with a cause-specific label and emits a
+// StepFinished event carrying the exit code, classified kind, and output tail.
+func (s *scheduler) emitStepFailure(ctx context.Context, job *compiler.JobPlan, step compiler.StepPlan, res runner.StepResult, tail *tailWriter) {
+	lines := tail.Tail()
+	kind := classifyFailure(ctx, res, lines)
+	label := fmt.Sprintf("failed %s", res.Duration.Round(time.Millisecond))
+	switch kind {
+	case FailTimeout:
+		label = fmt.Sprintf("timed out after %s", res.Duration.Round(time.Millisecond))
+	case FailEgress:
+		label = "egress blocked (not on allow-list)"
+	}
+	logs.Step(job.ID, step.ID, label, false, false)
+	ev := Event{
+		Kind: StepFinished, Job: job.ID, Step: step.ID, OK: false,
+		Duration: res.Duration, ExitCode: res.ExitCode, FailKind: kind,
+		ErrMsg: res.Err.Error(), Tail: lines,
+	}
+	s.mu.Lock()
+	s.jobFail[job.ID] = ev
+	s.mu.Unlock()
+	s.emit(ev)
+}
+
+// classifyFailure infers a FailKind from the result, context, and output tail.
+func classifyFailure(ctx context.Context, res runner.StepResult, tail []string) FailKind {
+	if ctx.Err() == context.DeadlineExceeded {
+		return FailTimeout
+	}
+	if res.Err != nil && strings.Contains(res.Err.Error(), "context deadline exceeded") {
+		return FailTimeout
+	}
+	for _, l := range tail {
+		if strings.Contains(l, "egress blocked") || strings.Contains(l, "allow-list") {
+			return FailEgress
+		}
+	}
+	return FailExit
 }
 
 // runStep executes a step once (or with retries), applying a per-step timeout,

@@ -284,6 +284,29 @@ func (s *Server) buildTools() []toolDef {
 			},
 		},
 		{
+			name: "ship_logs",
+			desc: "Return the full persisted combined output (stdout+stderr, secrets masked) for a job in a background run. Use after ship_status shows a failure to see why. Requires runId and job.",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"runId": map[string]any{"type": "string"},
+					"job":   map[string]any{"type": "string", "description": "job id (e.g. 'test' or a matrix id 'test/1.22-linux')"},
+				},
+				"required": []string{"runId", "job"},
+			},
+			handler: func(args map[string]any) (any, error) {
+				run, ok := s.mgr.Get(strArg(args, "runId"))
+				if !ok {
+					return nil, fmt.Errorf("unknown runId")
+				}
+				out, err := run.JobLog(strArg(args, "job"))
+				if err != nil {
+					return nil, err
+				}
+				return toolText(out, false), nil
+			},
+		},
+		{
 			name:   "ship_runs",
 			desc:   "List all runs started this session.",
 			schema: map[string]any{"type": "object", "properties": map[string]any{}},

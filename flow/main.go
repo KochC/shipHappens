@@ -276,6 +276,23 @@ func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 		}
 	}
 
+	// Collect failure detail for an end-of-run digest (chained onto observer).
+	var digestMu sync.Mutex
+	var failures []scheduler.Event
+	{
+		base := observer
+		observer = func(e scheduler.Event) {
+			if base != nil {
+				base(e)
+			}
+			if e.Kind == scheduler.JobFinished && !e.OK {
+				digestMu.Lock()
+				failures = append(failures, e)
+				digestMu.Unlock()
+			}
+		}
+	}
+
 	res := scheduler.Run(ctx, plan, scheduler.Options{
 		Workdir:  wd,
 		NoCache:  o.noCache,
@@ -306,11 +323,52 @@ func runCompiled(plan *compiler.RunPlan, o runOpts) int {
 
 	fmt.Println()
 	if res.Failed {
+		printFailureDigest(failures)
 		logs.Failure("✗ %s failed in %s  (%d ran, %d cached, %d resumed)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
 		return 1
 	}
 	logs.Success("✓ %s passed in %s  (%d ran, %d cached, %d resumed)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached, res.Resumed)
 	return 0
+}
+
+// printFailureDigest renders a compact block summarizing each failed job — its
+// cause, exit code, failing step, and the last lines of its output — so the
+// reason is in one place instead of scrolled away (especially under --tui).
+func printFailureDigest(failures []scheduler.Event) {
+	if len(failures) == 0 {
+		return
+	}
+	logs.Failure("─── %d failed job(s) ───", len(failures))
+	for _, e := range failures {
+		head := fmt.Sprintf("%s %s", e.FailKind.Mark(), e.Job)
+		switch e.FailKind {
+		case scheduler.FailExit:
+			head += fmt.Sprintf(" (exit %d)", e.ExitCode)
+		case scheduler.FailTimeout:
+			head += " (timeout)"
+		case scheduler.FailEgress:
+			head += " (egress blocked)"
+		case scheduler.FailSecret:
+			head += " (missing secret)"
+		case scheduler.FailDependency:
+			head += " (dependency failed)"
+		}
+		if e.Step != "" {
+			head += fmt.Sprintf(" · step: %s", e.Step)
+		}
+		logs.Failure("  %s", head)
+		for _, l := range lastN(e.Tail, 8) {
+			logs.Info("    │ %s", l)
+		}
+	}
+}
+
+// lastN returns the last n elements of s.
+func lastN(s []string, n int) []string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
 }
 
 // preheatFn is the indirection point for warming (overridable in tests).

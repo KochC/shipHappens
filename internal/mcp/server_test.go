@@ -130,7 +130,7 @@ func TestRunStatusCancelFlow(t *testing.T) {
 	s := NewServer()
 	// deterministic in-process run: stub the run function.
 	done := make(chan struct{})
-	s.mgr.runFn = func(ctx context.Context, file string, obs func(scheduler.Event)) (scheduler.Result, error) {
+	s.mgr.runFn = func(ctx context.Context, file, logDir string, obs func(scheduler.Event)) (scheduler.Result, error) {
 		obs(scheduler.Event{Kind: scheduler.JobStarted, Job: "a"})
 		obs(scheduler.Event{Kind: scheduler.StepStarted, Job: "a", Step: "s"})
 		<-done // block until the test lets it finish
@@ -233,7 +233,7 @@ func TestStatusUnknownRun(t *testing.T) {
 func TestCancelTool(t *testing.T) {
 	s := NewServer()
 	block := make(chan struct{})
-	s.mgr.runFn = func(ctx context.Context, _ string, _ func(scheduler.Event)) (scheduler.Result, error) {
+	s.mgr.runFn = func(ctx context.Context, _, _ string, _ func(scheduler.Event)) (scheduler.Result, error) {
 		select {
 		case <-ctx.Done():
 			return scheduler.Result{}, ctx.Err()

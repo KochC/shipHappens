@@ -6,6 +6,8 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -41,12 +43,19 @@ func (s runState) String() string {
 type jobState struct {
 	Status string `json:"status"` // pending|running|done|failed|skipped
 	Step   string `json:"step,omitempty"`
+	// Failure detail (set when Status is failed/skipped-for-dep).
+	FailKind string   `json:"failKind,omitempty"`
+	FailStep string   `json:"failStep,omitempty"`
+	ExitCode int      `json:"exitCode,omitempty"`
+	ErrMsg   string   `json:"error,omitempty"`
+	Tail     []string `json:"tail,omitempty"`
 }
 
 // Run holds one background run's state. Reads are guarded by mu.
 type Run struct {
 	ID      string
 	File    string
+	LogDir  string
 	mu      sync.Mutex
 	state   runState
 	jobs    map[string]*jobState
@@ -65,7 +74,29 @@ func (r *Run) snapshot() map[string]any {
 	var done, running, failed, pending int
 	for _, id := range r.order {
 		js := r.jobs[id]
-		jobs = append(jobs, map[string]any{"id": id, "status": js.Status, "step": js.Step})
+		jm := map[string]any{"id": id, "status": js.Status, "step": js.Step}
+		if js.ErrMsg != "" || js.FailKind != "" {
+			fail := map[string]any{}
+			if js.FailKind != "" {
+				fail["kind"] = js.FailKind
+			}
+			if js.ExitCode != 0 {
+				fail["exitCode"] = js.ExitCode
+			}
+			if js.ErrMsg != "" {
+				fail["message"] = js.ErrMsg
+			}
+			if js.Step != "" {
+				fail["step"] = js.Step
+			} else if js.FailStep != "" {
+				fail["step"] = js.FailStep
+			}
+			if len(js.Tail) > 0 {
+				fail["tail"] = js.Tail
+			}
+			jm["failure"] = fail
+		}
+		jobs = append(jobs, jm)
 		switch js.Status {
 		case "done":
 			done++
@@ -106,7 +137,7 @@ type Manager struct {
 	runs map[string]*Run
 	seq  int
 	// runFn is the scheduler entrypoint (overridable in tests).
-	runFn func(ctx context.Context, file string, obs func(scheduler.Event)) (scheduler.Result, error)
+	runFn func(ctx context.Context, file, logDir string, obs func(scheduler.Event)) (scheduler.Result, error)
 }
 
 // NewManager returns a Manager backed by the real scheduler.
@@ -117,14 +148,26 @@ func NewManager() *Manager {
 	}
 }
 
-// defaultRunFn loads a plan file and runs it, forwarding events to obs.
-func defaultRunFn(ctx context.Context, file string, obs func(scheduler.Event)) (scheduler.Result, error) {
+// defaultRunFn loads a plan file and runs it, forwarding events to obs and
+// persisting per-job logs under logDir.
+func defaultRunFn(ctx context.Context, file, logDir string, obs func(scheduler.Event)) (scheduler.Result, error) {
 	plan, err := planfile.Load(file)
 	if err != nil {
 		return scheduler.Result{}, err
 	}
-	res := scheduler.Run(ctx, plan, scheduler.Options{Observer: obs})
+	res := scheduler.Run(ctx, plan, scheduler.Options{Observer: obs, LogDir: logDir})
 	return res, nil
+}
+
+// runsRoot is the base dir for persisted run logs (overridable in tests).
+var runsRoot = defaultRunsRoot
+
+func defaultRunsRoot() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "ship", "runs")
+	}
+	return filepath.Join(home, ".ship", "runs")
 }
 
 // Start launches a background run for the given pipeline file and returns its id.
@@ -135,8 +178,9 @@ func (m *Manager) Start(file string, jobIDs []string) *Run {
 	m.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	logDir := filepath.Join(runsRoot(), id)
 	r := &Run{
-		ID: id, File: file, jobs: map[string]*jobState{}, order: append([]string(nil), jobIDs...),
+		ID: id, File: file, LogDir: logDir, jobs: map[string]*jobState{}, order: append([]string(nil), jobIDs...),
 		started: time.Now(), cancel: cancel,
 	}
 	for _, jid := range jobIDs {
@@ -148,7 +192,7 @@ func (m *Manager) Start(file string, jobIDs []string) *Run {
 	m.mu.Unlock()
 
 	go func() {
-		res, err := m.runFn(ctx, file, r.observe)
+		res, err := m.runFn(ctx, file, logDir, r.observe)
 		r.mu.Lock()
 		r.result = res
 		r.ended = time.Now()
@@ -183,12 +227,35 @@ func (r *Run) observe(e scheduler.Event) {
 			js.Status = "done"
 		} else {
 			js.Status = "failed"
+			recordFailure(js, e)
 		}
 		js.Step = ""
 	case scheduler.JobSkipped:
 		js.Status = "skipped"
+		if e.FailKind != scheduler.FailNone {
+			recordFailure(js, e)
+		}
 	case scheduler.StepStarted:
 		js.Step = e.Step
+	}
+}
+
+// recordFailure copies a scheduler event's failure detail into the job state.
+func recordFailure(js *jobState, e scheduler.Event) {
+	if e.FailKind != scheduler.FailNone {
+		js.FailKind = e.FailKind.String()
+	}
+	if e.Step != "" {
+		js.FailStep = e.Step
+	}
+	if e.ExitCode != 0 {
+		js.ExitCode = e.ExitCode
+	}
+	if e.ErrMsg != "" {
+		js.ErrMsg = e.ErrMsg
+	}
+	if len(e.Tail) > 0 {
+		js.Tail = e.Tail
 	}
 }
 
@@ -220,4 +287,30 @@ func (m *Manager) Cancel(id string) bool {
 	}
 	r.cancel()
 	return true
+}
+
+// JobLog returns the persisted combined output for a job in this run, reading
+// from LogDir/<job>.log. Returns an error if the run/job has no log yet.
+func (r *Run) JobLog(jobID string) (string, error) {
+	if r.LogDir == "" {
+		return "", fmt.Errorf("no log directory for this run")
+	}
+	path := filepath.Join(r.LogDir, sanitizeLogName(jobID)+".log")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("no log for job %q (it may not have run yet)", jobID)
+	}
+	return string(b), nil
+}
+
+// sanitizeLogName mirrors the scheduler's log-file naming so JobLog can locate
+// files for matrix-expanded ids (which contain '/').
+func sanitizeLogName(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+			b[i] = '_'
+		}
+	}
+	return string(b)
 }
