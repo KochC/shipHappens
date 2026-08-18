@@ -4,6 +4,8 @@
 coverage.out
 coverage.html
 .demo3-*
+# Ship Happens per-job $SHIP_OUTPUT scratch files
+.ship-output-*
 
 # Demo build artifacts (generated in containers, at any depth under demos/)
 demos/**/node_modules/

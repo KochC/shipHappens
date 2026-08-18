@@ -117,8 +117,9 @@ jobs {
         run = """
           set -eu
           V="$(cat VERSION)"
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "working tree is dirty — commit or stash before publishing"; exit 1
+          # Only tracked changes count as "dirty" (ignore Ship's scratch files).
+          if ! git diff --quiet HEAD; then
+            echo "working tree has uncommitted tracked changes — commit or stash before publishing"; exit 1
           fi
           gh auth status
           git tag -a "$V" -m "Release $V"
