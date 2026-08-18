@@ -44,11 +44,11 @@ func JobFingerprint(in JobFingerprintInput) (string, error) {
 		return "", err
 	}
 	for _, f := range files {
-		fh, err := hashFile(f)
+		sig, err := statSignature(f)
 		if err != nil {
-			return "", err
+			continue // unreadable/vanished file: skip rather than fail resume
 		}
-		io.WriteString(h, "file:"+f+":"+fh+"\n")
+		io.WriteString(h, "file:"+f+":"+sig+"\n")
 	}
 
 	ups := append([]string(nil), in.UpstreamFPs...)

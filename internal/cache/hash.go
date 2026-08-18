@@ -55,10 +55,54 @@ func hashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// statSignature returns a fast, read-free change signature for a file based on
+// its path, size, and modification time. Used by the resume fingerprint over
+// potentially large input trees where full content hashing is too slow. (The
+// step cache still uses full content hashing for correctness on small globs.)
+func statSignature(path string) (string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	return path + ":" + strconvI(fi.Size()) + ":" + strconvI(fi.ModTime().UnixNano()), nil
+}
+
+func strconvI(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [24]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}
+
+// prunedDir reports whether a directory should be skipped during ** walks —
+// heavy/irrelevant trees that would bloat cache keys and slow fingerprinting.
+func prunedDir(name string) bool {
+	switch name {
+	case ".git", ".pio", ".ship-artifacts", ".ship-overlay", "node_modules",
+		".venv", "__pycache__", ".mypy_cache", "managed_components":
+		return true
+	}
+	return false
+}
+
 // expandGlobs resolves globs relative to workdir into a sorted, de-duped list
 // of regular files. Supports ** via a simple walk when a glob contains it.
-func expandGlobs(workdir string, globs []string) ([]string, error) {
-	set := map[string]bool{}
+func expandGlobs(workdir string, globs []string) ([]string, error) {	set := map[string]bool{}
 	for _, g := range globs {
 		full := filepath.Join(workdir, g)
 		if containsDoubleStar(g) {
@@ -68,6 +112,9 @@ func expandGlobs(workdir string, globs []string) ([]string, error) {
 					return nil // skip unreadable
 				}
 				if d.IsDir() {
+					if prunedDir(d.Name()) {
+						return filepath.SkipDir
+					}
 					return nil
 				}
 				if matchSuffix(p, pattern) {

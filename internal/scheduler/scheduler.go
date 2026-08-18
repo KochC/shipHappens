@@ -232,9 +232,11 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	defer func() { <-s.sem }()
 
 	// Resume: if this job's fingerprint matches a prior success, skip it and
-	// restore its outputs instead of re-executing.
+	// restore its outputs instead of re-executing. Only jobs that declare
+	// Outputs participate in resume (others are cheap/side-effecting and not
+	// worth fingerprinting a potentially large input tree for).
 	fp := ""
-	if s.opts.Resume && s.store != nil {
+	if s.opts.Resume && s.store != nil && len(job.Outputs) > 0 {
 		fp = s.fingerprint(job)
 		if fp != "" && s.store.JobDone(fp) {
 			_ = s.store.RestoreJob(fp, s.opts.Workdir)
@@ -284,7 +286,7 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	if !jobFailed {
 		// Record success for resume BEFORE pruning, so declared Outputs are
 		// captured while they still exist on disk.
-		if s.opts.Resume && s.store != nil && fp != "" {
+		if s.opts.Resume && s.store != nil && fp != "" && len(job.Outputs) > 0 {
 			_ = s.store.MarkJobDone(fp, s.opts.Workdir, job.Outputs)
 		}
 		s.cleanAfter(job)

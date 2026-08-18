@@ -36,8 +36,8 @@ func TestFingerprintStableAndSensitive(t *testing.T) {
 	if fp, _ := JobFingerprint(b); fp == fp1 {
 		t.Fatal("fp should change with upstream")
 	}
-	// changing input file content changes the fp
-	os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a // x"), 0o644)
+	// changing input file content (size) changes the fp
+	os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a // longer content changes size"), 0o644)
 	if fp, _ := JobFingerprint(base); fp == fp1 {
 		t.Fatal("fp should change with input content")
 	}
