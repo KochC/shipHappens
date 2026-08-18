@@ -411,6 +411,39 @@ secret values.
 
 ---
 
+## 12.5 Reusable templates
+
+Instead of hand-writing every command, compose pipelines from **pre-built,
+parameterized job & step templates** in [`pkl/templates.pkl`](../pkl/templates.pkl).
+This is the Ship Happens answer to GitHub Actions' `uses:` / composite actions —
+but as plain, typed, sandboxed Pkl functions (no marketplace, no remote code).
+
+```pkl
+amends "ship.pkl"
+import "ship.pkl" as s
+import "templates.pkl" as t
+
+name = "CI"
+jobs {
+  ["test"]  = t.goTest()                                   // ready-made vet+test
+  ["build"] = (t.goBuild("./cmd/app", "bin/app")) {        // amend to add needs
+    needs { "test" }
+  }
+  ["lint-py"] = t.pythonCheck("python:3.12-slim")          // ruff + pytest
+}
+```
+
+Every template returns a `ship#Job` (or `ship#Step`) you can further customize
+by amending it. Built-in templates include `goTest`, `goBuild`,
+`goTestContainer`, `npm`, `pythonCheck`, `dockerBuild`, and the step helpers
+`checkoutStep`, `outputStep`, `reportFailure`. Write your own the same way — a
+Pkl function returning a `ship.Job`/`ship.Step` — and share them across repos via
+Pkl imports or a published package (`pkl/PklProject`).
+
+See a runnable example in [`demos/reusable-app`](../demos/reusable-app/pipeline.pkl).
+
+---
+
 ## 13. Also available: Go DSL & JSON
 
 Pipelines may also be authored as **Go programs** (a fluent DSL) or as raw

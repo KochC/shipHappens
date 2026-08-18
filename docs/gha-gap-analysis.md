@@ -87,9 +87,9 @@ future "server/remote" milestone, not the core runner.
 
 | GHA feature | Ship Happens | Notes |
 |---|---|---|
-| Reusable workflows (`workflow_call`) | ❌ | — |
-| Composite actions | ❌ | — |
-| Action marketplace (`uses:`) | ❌ | — |
+| Reusable workflows (`workflow_call`) | 🟡 | Pkl templates: parameterized job/step functions (`templates.pkl`), shareable via Pkl imports/packages |
+| Composite actions | 🟡 | Pkl step-template functions returning `ship#Step` |
+| Action marketplace (`uses:`) | ❌ | no marketplace (by design); reuse via typed Pkl templates instead |
 | Multiple authoring front-ends | ✅ (different) | Go DSL + Pkl + JSON, all → same IR |
 
 ## 9. Outputs & status checks

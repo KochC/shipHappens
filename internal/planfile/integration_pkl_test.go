@@ -55,3 +55,37 @@ func TestIntegrationRealPklEval(t *testing.T) {
 		t.Errorf("build cache not evaluated: %+v", b.Steps[0])
 	}
 }
+
+func TestIntegrationReusableTemplates(t *testing.T) {
+	if _, err := exec.LookPath("pkl"); err != nil {
+		t.Skip("pkl not installed")
+	}
+	root := filepath.Join("..", "..")
+	pipeline := filepath.Join(root, "demos", "reusable-app", "pipeline.pkl")
+	if _, err := os.Stat(pipeline); err != nil {
+		t.Skipf("reusable demo not found: %v", err)
+	}
+	plan, err := Load(pipeline)
+	if err != nil {
+		t.Fatalf("load reusable pipeline: %v", err)
+	}
+	// jobs composed from templates
+	for _, want := range []string{"test", "build", "release-notes"} {
+		if plan.Job(want) == nil {
+			t.Errorf("missing templated job %q", want)
+		}
+	}
+	// goTest() template → vet + test steps
+	test := plan.Job("test")
+	if len(test.Steps) != 2 || test.Steps[0].ID != "vet" {
+		t.Errorf("goTest template steps wrong: %+v", test.Steps)
+	}
+	// goBuild() template → outputs + amended needs
+	build := plan.Job("build")
+	if len(build.Outputs) != 1 || build.Outputs[0] != "bin/ship" {
+		t.Errorf("goBuild outputs wrong: %+v", build.Outputs)
+	}
+	if len(build.Needs) != 1 || build.Needs[0] != "test" {
+		t.Errorf("amended needs wrong: %+v", build.Needs)
+	}
+}

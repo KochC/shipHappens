@@ -1,0 +1,102 @@
+/// Ship Happens — reusable job & step templates.
+///
+/// Import alongside the schema to compose pipelines from parameterized,
+/// pre-built jobs and steps instead of hand-writing every command. This is the
+/// Ship Happens answer to GitHub Actions' `uses:` / composite actions — but as
+/// plain, typed, sandboxed Pkl functions (no marketplace, no remote code).
+///
+///     import "templates.pkl" as t
+///     amends "ship.pkl"
+///     name = "CI"
+///     jobs {
+///       ["test"] = t.goTest()
+///       ["build"] = (t.goBuild("./cmd/app", "bin/app")) { needs { "test" } }
+///     }
+///
+/// Every template returns a `ship#Job` you can further customize by amending it.
+@ModuleInfo { minPklVersion = "0.25.0" }
+module templates
+
+import "ship.pkl"
+
+// ── Go ──────────────────────────────────────────────────────────────────────
+
+/// A Go module test job (vet + test), cached on Go sources.
+function goTest(): ship.Job = new ship.Job {
+  steps {
+    new { id = "vet"; run = "go vet ./..." }
+    new {
+      id = "test"; run = "go test ./... -count=1"
+      cache = new ship.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" } }
+    }
+  }
+}
+
+/// A Go build job producing `out` from `pkg`, with the binary as the job output.
+function goBuild(pkg: String, outPath: String): ship.Job = new ship.Job {
+  steps {
+    new {
+      id = "build"; run = "go build -trimpath -o \(outPath) \(pkg)"
+      cache = new ship.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" }; outputs { outPath } }
+    }
+  }
+  outputs { outPath }
+}
+
+/// A containerized Go job on the given image (default golang:1.22-alpine).
+function goTestContainer(img: String): ship.Job = (goTest()) {
+  image = img
+}
+
+// ── Node / JS ────────────────────────────────────────────────────────────────
+
+/// npm install + a script (e.g. "test", "build") in a Node container.
+function npm(img: String, script: String): ship.Job = new ship.Job {
+  image = img
+  steps {
+    new { id = "install"; run = "npm install --no-audit --no-fund --loglevel=error"
+          cache = new ship.Cache { inputs { "package.json"; "package-lock.json" } } }
+    new { id = script; run = "npm run \(script)" }
+  }
+}
+
+// ── Python ───────────────────────────────────────────────────────────────────
+
+/// ruff lint + pytest in a Python container.
+function pythonCheck(img: String): ship.Job = new ship.Job {
+  image = img
+  steps {
+    new { id = "setup"; run = "pip install --quiet ruff pytest" }
+    new { id = "lint"; run = "ruff check ." }
+    new { id = "test"; run = "pytest -q"
+          cache = new ship.Cache { inputs { "**/*.py"; "pyproject.toml" } } }
+  }
+}
+
+// ── Docker image build ───────────────────────────────────────────────────────
+
+/// Build (and optionally tag) a Docker image from a Dockerfile. Needs network.
+function dockerBuild(tag: String, context: String): ship.Job = new ship.Job {
+  network = true
+  steps {
+    new { id = "build"; run = "docker build -t \(tag) \(context)" }
+  }
+}
+
+// ── Common steps (compose into your own jobs) ────────────────────────────────
+
+/// A checkout-style step (records the current commit).
+function checkoutStep(): ship.Step = new ship.Step {
+  id = "checkout"; run = "git rev-parse HEAD"
+}
+
+/// A step that publishes a `key=value` output for dependents.
+function outputStep(stepId: String, key: String, valueCmd: String): ship.Step = new ship.Step {
+  id = stepId
+  run = "echo \"\(key)=$(\(valueCmd))\" >> \"$SHIP_OUTPUT\""
+}
+
+/// A best-effort error-report handler for use in a step's `onFailure`.
+function reportFailure(message: String): ship.Step = new ship.Step {
+  id = "report"; run = "echo \(message)"; continueOnError = true
+}

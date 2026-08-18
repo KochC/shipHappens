@@ -1,0 +1,19 @@
+/// Pkl package for the Ship Happens pipeline schema + reusable templates.
+///
+/// This makes `ship.pkl` and `templates.pkl` importable as a versioned package.
+/// Once released, downstream pipelines can pin a version, e.g.:
+///
+///     amends "package://github.com/KochC/shipHappens/releases/download/pkl-v1.0.0/ship@1.0.0#/ship.pkl"
+///
+/// Locally, import the files directly (see the demos).
+amends "pkl:Project"
+
+package {
+  name = "shiphappens"
+  version = "1.0.0"
+  baseUri = "package://github.com/KochC/shipHappens/pkl/shiphappens"
+  packageZipUrl = "https://github.com/KochC/shipHappens/releases/download/pkl-v\(version)/shiphappens@\(version).zip"
+  authors { "KochC" }
+  sourceCode = "https://github.com/KochC/shipHappens"
+  license = "MIT"
+}

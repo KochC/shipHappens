@@ -150,6 +150,7 @@ go run ./demos/go-app       # real go vet + test + build in a container
 go run ./demos/vue-app      # real npm + vitest + vite build in a container
 DEPLOY_TOKEN=sk-x go run ./demos/secrets-app   # variables + masked secrets
 go run ./cmd/ship run demos/pkl-app/pipeline.pkl   # authored in Pkl
+go run ./cmd/ship run demos/reusable-app/pipeline.pkl   # composed from reusable templates
 ```
 
 See [demos/README.md](demos/README.md) for details.

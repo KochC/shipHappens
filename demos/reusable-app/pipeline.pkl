@@ -1,0 +1,33 @@
+/// Reusable-templates demo — compose a pipeline from pre-built job templates.
+///
+///     go run ../../cmd/ship run pipeline.pkl
+///
+/// Instead of hand-writing every command, jobs come from templates.pkl
+/// (goTest, goBuild, pythonCheck, …). Each returns a ship#Job you can amend to
+/// add needs/env/etc. This is the Ship Happens equivalent of GHA `uses:` —
+/// plain, typed, sandboxed Pkl, no marketplace.
+amends "../../pkl/ship.pkl"
+
+import "../../pkl/ship.pkl" as s
+import "../../pkl/templates.pkl" as t
+
+name = "Reusable CI"
+
+jobs {
+  // A ready-made Go test job (vet + test, cached).
+  ["test"] = t.goTest()
+
+  // A Go build job, customized with a dependency via amend.
+  ["build"] = (t.goBuild("./cmd/ship", "bin/ship")) {
+    needs { "test" }
+  }
+
+  // A job composed from individual template steps.
+  ["release-notes"] = new s.Job {
+    needs { "build" }
+    steps {
+      t.outputStep("ver", "version", "git rev-parse --short HEAD || echo dev")
+      new { id = "notes"; run = "echo release notes ready" }
+    }
+  }
+}
