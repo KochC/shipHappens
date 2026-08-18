@@ -235,7 +235,11 @@ ship run pipeline.pkl
 
 ## 🧪 Try the demos
 
+Every demo comes in **two forms** — the Go DSL program and an equivalent **Pkl**
+pipeline (`demos/<name>/pipeline.pkl`), both lowering to the same engine:
+
 ```bash
+# Go DSL
 go run ./demos/demo1        # parallel fan-out/fan-in (TUI)
 go run ./demos/demo2        # fail-fast: a job fails, dependents skipped
 go run ./demos/demo3        # resume: run twice, second is instant
@@ -244,9 +248,14 @@ go run ./demos/python-app   # real ruff + pytest + wheel in a container
 go run ./demos/go-app       # real go vet + test + build in a container
 go run ./demos/vue-app      # real npm + vitest + vite build in a container
 DEPLOY_TOKEN=sk-x go run ./demos/secrets-app   # variables + masked secrets
-go run ./cmd/ship run demos/pkl-app/pipeline.pkl       # authored in Pkl
-go run ./cmd/ship run demos/reusable-app/pipeline.pkl  # composed from reusable templates
-go run ./cmd/ship run demos/toolchain-app/pipeline.pkl # native pinned tool versions (needs mise)
+
+# Pkl (same pipelines — also runnable via the ship-mcp MCP server)
+ship run demos/demo1/pipeline.pkl --tui
+ship run demos/matrix-app/pipeline.pkl
+DEPLOY_TOKEN=sk-x ship run demos/secrets-app/pipeline.pkl
+ship run demos/pkl-app/pipeline.pkl            # bespoke Pkl demo
+ship run demos/reusable-app/pipeline.pkl       # composed from reusable templates
+ship run demos/toolchain-app/pipeline.pkl      # native pinned tool versions (needs mise)
 ```
 
 See [demos/README.md](demos/README.md) for details.

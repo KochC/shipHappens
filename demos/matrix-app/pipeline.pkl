@@ -1,0 +1,60 @@
+/// Matrix + robustness demo — the Pkl port of demos/matrix-app.
+///
+///     ship run demos/matrix-app/pipeline.pkl --tui
+///     ship run demos/matrix-app/pipeline.pkl --no-tui   # see per-step tool output
+///
+/// The Go DSL `Matrix(os × go)` expands to N parallel jobs at compile time; Pkl
+/// has no matrix primitive, so the 2×2 fan-out is written out as four explicit
+/// `test-*` jobs (each with $OS/$GO set). `flaky` demonstrates retries;
+/// `optional` demonstrates a per-step timeout + continue-on-error.
+amends "../../pkl/ship.pkl"
+
+name = "Matrix + Robustness"
+
+jobs {
+  // Fan-out: 2 OSes × 2 Go versions = 4 parallel jobs (expanded by hand).
+  ["test-linux-1.21"] {
+    env { ["OS"] = "linux"; ["GO"] = "1.21" }
+    steps { new { id = "info"; run = "echo \"testing on $OS with Go $GO\" && sleep 0.5" } }
+  }
+  ["test-linux-1.22"] {
+    env { ["OS"] = "linux"; ["GO"] = "1.22" }
+    steps { new { id = "info"; run = "echo \"testing on $OS with Go $GO\" && sleep 0.5" } }
+  }
+  ["test-mac-1.21"] {
+    env { ["OS"] = "mac"; ["GO"] = "1.21" }
+    steps { new { id = "info"; run = "echo \"testing on $OS with Go $GO\" && sleep 0.5" } }
+  }
+  ["test-mac-1.22"] {
+    env { ["OS"] = "mac"; ["GO"] = "1.22" }
+    steps { new { id = "info"; run = "echo \"testing on $OS with Go $GO\" && sleep 0.5" } }
+  }
+
+  // Retries: fails on the first attempt, succeeds on the second.
+  ["flaky"] {
+    needs { "test-linux-1.21"; "test-linux-1.22"; "test-mac-1.21"; "test-mac-1.22" }
+    cleanAfter { ".flaky-done" }
+    steps {
+      new {
+        id = "attempt"
+        run = "if [ -f .flaky-done ]; then echo ok; else touch .flaky-done; echo 'fail #1'; exit 1; fi"
+        retries = 2
+      }
+    }
+  }
+
+  // Timeout + continue-on-error: a slow step that times out but doesn't fail the run.
+  ["optional"] {
+    needs { "test-linux-1.21"; "test-linux-1.22"; "test-mac-1.21"; "test-mac-1.22" }
+    continueOnError = true
+    steps { new { id = "slow"; run = "sleep 10"; timeoutSec = 1 } }
+  }
+
+  ["done"] {
+    needs {
+      "test-linux-1.21"; "test-linux-1.22"; "test-mac-1.21"; "test-mac-1.22"
+      "flaky"; "optional"
+    }
+    steps { new { id = "summary"; run = "echo 'matrix complete; optional may have failed harmlessly'" } }
+  }
+}

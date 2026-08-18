@@ -1,13 +1,25 @@
-# Ship Happens — TUI demos
+# Ship Happens — demos
 
-Three small, self-contained pipelines that show the live terminal dashboard
-(`--tui`). Run each from the repo root in a real terminal to see the in-place
-repainting, colored status marks, and live timers.
+Small, self-contained pipelines that show the live terminal dashboard
+(`--tui`), caching, containers, secrets, and more.
+
+> **Every demo ships in two forms:** the original **Go DSL** program
+> (`go run ./demos/<name>`) *and* an equivalent **Pkl** pipeline
+> (`demos/<name>/pipeline.pkl`) — both lower to the identical engine. The Pkl
+> versions are also runnable through the `ship-mcp` MCP server. Run Pkl with
+> `ship run demos/<name>/pipeline.pkl` (the three containerized stacks are run
+> from inside their own directory — see below).
 
 ```bash
+# Go DSL:
 go run ./demos/demo1   # parallel fan-out/fan-in build
 go run ./demos/demo2   # fail-fast: a job fails, dependents are skipped
 go run ./demos/demo3   # resume: run twice — second run restores from cache
+
+# Pkl (same pipelines):
+ship run demos/demo1/pipeline.pkl --tui
+ship run demos/demo2/pipeline.pkl --tui
+ship run demos/demo3/pipeline.pkl --resume
 ```
 
 Status marks: `▶` running · `✓` done · `✗` failed · `◌` skipped (dep failed) ·
@@ -44,6 +56,11 @@ Each demo ships a small real app plus its Ship Happens pipeline.
 go run ./demos/python-app   # ruff + pytest + wheel build  (python:3.12-slim)
 go run ./demos/go-app       # go vet + go test + go build  (golang:1.22-alpine)
 go run ./demos/vue-app      # npm install → vitest + vite build (node:20-alpine)
+
+# Pkl equivalents — run from inside the demo dir (its dir is the working tree):
+( cd demos/python-app && ship run pipeline.pkl --tui )
+( cd demos/go-app     && ship run pipeline.pkl --tui )
+( cd demos/vue-app    && ship run pipeline.pkl --tui )
 ```
 
 Common flags (all demos): `--job <id>`, `--resume`, `--no-cache`,
@@ -81,6 +98,9 @@ DEPLOY_TOKEN=sk-example-123456 go run ./demos/secrets-app        # succeeds; tok
 go run ./demos/secrets-app                                       # missing secret → fails fast
 DEPLOY_TOKEN=sk-example-123456 go run ./demos/secrets-app --var REGION=us-east
 DEPLOY_TOKEN=sk-example-123456 go run ./demos/secrets-app --compile plan.json  # value NOT in plan
+
+# Pkl:
+DEPLOY_TOKEN=sk-example-123456 ship run demos/secrets-app/pipeline.pkl
 ```
 
 Shows: variable injection + `--var` override, secret masking (`***`) in output,
@@ -110,4 +130,8 @@ job/step **continue-on-error**.
 ```bash
 go run ./demos/matrix-app
 go run ./demos/matrix-app --no-tui   # see per-step output
+
+# Pkl (the os×go matrix is expanded to four explicit test-* jobs, since Pkl
+# has no matrix primitive — the Go DSL expands it the same way at compile time):
+ship run demos/matrix-app/pipeline.pkl --no-tui
 ```

@@ -1,0 +1,59 @@
+/// Real containerized Go CI — the Pkl port of demos/go-app.
+///
+/// Run it FROM this directory (the working tree is the cwd, like the Go demo's
+/// chdir), operating on the src/ module (its own go.mod):
+///
+///     cd demos/go-app && ship run pipeline.pkl --tui
+///     cd demos/go-app && ship run pipeline.pkl --job test
+///     cd demos/go-app && ship run pipeline.pkl --resume
+///
+/// Uses golang:1.22-alpine. The prelude keeps the Go build/module caches inside
+/// the working tree so parallel container jobs share them.
+amends "../../pkl/ship.pkl"
+
+name = "Go CI"
+
+// prelude: cache dirs inside the tree + cd into the module.
+local prelude = """
+set -e
+export GOFLAGS=-mod=mod GOCACHE=/ship/work/.gocache GOMODCACHE=/ship/work/.gomodcache
+cd src
+"""
+
+jobs {
+  ["vet"] {
+    image = "golang:1.22-alpine"
+    steps {
+      new {
+        id = "go vet"
+        run = prelude + "go vet ./..."
+        cache { inputs { "src/**/*.go"; "src/go.mod" } }
+      }
+    }
+  }
+
+  ["test"] {
+    image = "golang:1.22-alpine"
+    steps {
+      new {
+        id = "go test"
+        run = prelude + "go test ./... -count=1"
+        cache { inputs { "src/**/*.go"; "src/go.mod" } }
+      }
+    }
+  }
+
+  ["build"] {
+    needs { "vet"; "test" }
+    image = "golang:1.22-alpine"
+    cleanAfter { "src/.gocache"; "src/.gomodcache" }
+    steps {
+      new {
+        id = "go build"
+        run = prelude + "go build -o ../bin/calcdemo . && ls -la ../bin"
+        cache { inputs { "src/**/*.go"; "src/go.mod" } }
+      }
+    }
+    outputs { "bin/**" }
+  }
+}

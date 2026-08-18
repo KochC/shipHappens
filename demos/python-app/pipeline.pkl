@@ -1,0 +1,58 @@
+/// Real containerized Python CI — the Pkl port of demos/python-app.
+///
+/// Run it FROM this directory (the working tree is the cwd, like the Go demo's
+/// chdir), operating on this app's pyproject.toml/app/tests:
+///
+///     cd demos/python-app && ship run pipeline.pkl --tui
+///     cd demos/python-app && ship run pipeline.pkl --job test
+///     cd demos/python-app && ship run pipeline.pkl --resume
+///
+/// Uses python:3.12-slim and installs ruff/pytest/build per job (each step is a
+/// fresh container, so tools are installed in the same step that uses them).
+amends "../../pkl/ship.pkl"
+
+name = "Python CI"
+
+local setup = """
+set -e
+export PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_ROOT_USER_ACTION=ignore
+pip install --quiet ruff pytest build >/dev/null
+"""
+
+jobs {
+  ["lint"] {
+    image = "python:3.12-slim"
+    steps {
+      new {
+        id = "ruff"
+        run = setup + "ruff check ."
+        cache { inputs { "**/*.py"; "pyproject.toml" } }
+      }
+    }
+  }
+
+  ["test"] {
+    image = "python:3.12-slim"
+    steps {
+      new {
+        id = "pytest"
+        run = setup + "pytest -q"
+        cache { inputs { "**/*.py"; "pyproject.toml" } }
+      }
+    }
+  }
+
+  ["build"] {
+    needs { "lint"; "test" }
+    image = "python:3.12-slim"
+    cleanAfter { "build"; "*.egg-info" }
+    steps {
+      new {
+        id = "wheel"
+        run = setup + "python -m build --wheel --outdir dist . >/dev/null && ls -la dist"
+        cache { inputs { "**/*.py"; "pyproject.toml" } }
+      }
+    }
+    outputs { "dist/**" }
+  }
+}

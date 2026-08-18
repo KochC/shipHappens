@@ -1,0 +1,42 @@
+/// Fail-fast demo — a job in the middle of the DAG fails, the scheduler cancels
+/// in-flight work, and downstream jobs are marked skipped (◌). The Pkl port of
+/// demos/demo2.
+///
+///     ship run demos/demo2/pipeline.pkl --tui
+///
+/// test ✗ (fails) → build, deploy flip to skipped, while the independent `docs`
+/// branch still completes. Exits non-zero.
+amends "../../pkl/ship.pkl"
+
+name = "Fail-Fast Demo"
+
+jobs {
+  ["checkout"] {
+    steps { new { id = "clone"; run = "sleep 0.5" } }
+  }
+
+  // This branch fails on its second step.
+  ["test"] {
+    needs { "checkout" }
+    steps {
+      new { id = "unit"; run = "sleep 1.0" }
+      new { id = "integration"; run = "sleep 0.5 && echo 'boom: assertion failed' && exit 1" }
+    }
+  }
+
+  // These depend on the failing job → will be skipped.
+  ["build"] {
+    needs { "test" }
+    steps { new { id = "compile"; run = "sleep 1.0" } }
+  }
+  ["deploy"] {
+    needs { "build" }
+    steps { new { id = "ship"; run = "sleep 0.5" } }
+  }
+
+  // Independent branch that should still finish.
+  ["docs"] {
+    needs { "checkout" }
+    steps { new { id = "build-docs"; run = "sleep 1.4" } }
+  }
+}

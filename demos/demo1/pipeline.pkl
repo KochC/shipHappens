@@ -1,0 +1,38 @@
+/// Parallel build demo — a fan-out/fan-in DAG (the Pkl port of demos/demo1).
+///
+///     ship run demos/demo1/pipeline.pkl --tui
+///
+/// checkout → { lint ∥ test ∥ typecheck } → build → package. Watch the ▶
+/// (running) marks light up in parallel and flip to ✓ as each job finishes.
+amends "../../pkl/ship.pkl"
+
+name = "Parallel Build"
+
+jobs {
+  ["checkout"] {
+    steps { new { id = "clone"; run = "sleep 0.6" } }
+  }
+
+  ["lint"] {
+    needs { "checkout" }
+    steps { new { id = "eslint"; run = "sleep 1.5" } }
+  }
+  ["test"] {
+    needs { "checkout" }
+    steps { new { id = "unit"; run = "sleep 2.2" } }
+  }
+  ["typecheck"] {
+    needs { "checkout" }
+    steps { new { id = "tsc"; run = "sleep 1.1" } }
+  }
+
+  ["build"] {
+    needs { "lint"; "test"; "typecheck" }
+    steps { new { id = "compile"; run = "sleep 1.3" } }
+  }
+
+  ["package"] {
+    needs { "build" }
+    steps { new { id = "bundle"; run = "sleep 0.8" } }
+  }
+}

@@ -1,0 +1,59 @@
+/// Real containerized Vue 3 + Vite CI — the Pkl port of demos/vue-app.
+///
+/// Run it FROM this directory (the working tree is the cwd, like the Go demo's
+/// chdir), operating on the app/ project:
+///
+///     cd demos/vue-app && ship run pipeline.pkl --tui
+///     cd demos/vue-app && ship run pipeline.pkl --job test
+///     cd demos/vue-app && ship run pipeline.pkl --resume
+///
+/// Uses node:20-alpine. The install job populates node_modules on the shared
+/// working tree; test and build depend on it and run in parallel.
+amends "../../pkl/ship.pkl"
+
+name = "Vue CI"
+
+local prelude = """
+set -e
+cd app
+"""
+
+jobs {
+  // Install deps once; downstream jobs reuse node_modules from the shared tree.
+  ["install"] {
+    image = "node:20-alpine"
+    steps {
+      new {
+        id = "npm ci"
+        run = prelude + "npm install --no-audit --no-fund --loglevel=error"
+        cache { inputs { "app/package.json" } }
+      }
+    }
+    outputs { "app/node_modules/**" }
+  }
+
+  ["test"] {
+    needs { "install" }
+    image = "node:20-alpine"
+    steps {
+      new {
+        id = "vitest"
+        run = prelude + "npm test"
+        cache { inputs { "app/src/**"; "app/package.json"; "app/vite.config.js" } }
+      }
+    }
+  }
+
+  ["build"] {
+    needs { "install" }
+    image = "node:20-alpine"
+    steps {
+      new {
+        id = "vite build"
+        run = prelude + "npm run build && ls -la dist"
+        cache { inputs { "app/src/**"; "app/index.html"; "app/package.json"; "app/vite.config.js" } }
+      }
+    }
+    outputs { "app/dist/**" }
+  }
+}

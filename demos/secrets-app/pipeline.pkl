@@ -1,0 +1,41 @@
+/// Variables & secrets demo — the Pkl port of demos/secrets-app.
+///
+///     # provide the secret via the host environment (never hardcoded):
+///     DEPLOY_TOKEN=sk-example-123456 ship run demos/secrets-app/pipeline.pkl
+///     ship run demos/secrets-app/pipeline.pkl                 # missing secret → fails fast
+///     DEPLOY_TOKEN=sk-example-123456 ship run demos/secrets-app/pipeline.pkl --no-tui
+///
+/// Sets a variable REGION and requires a secret DEPLOY_TOKEN. The build/test
+/// jobs use only the variable; deploy additionally consumes the secret. Secret
+/// values are masked (***) in all output, are never written to the compiled
+/// plan, and fail the run fast if absent.
+amends "../../pkl/ship.pkl"
+
+name = "Deploy Pipeline"
+
+vars {
+  ["REGION"] = "eu-west"
+  ["APP"] = "widget-svc"
+}
+
+jobs {
+  ["build"] {
+    steps { new { id = "compile"; run = "echo \"building $APP for $REGION\" && sleep 0.6" } }
+  }
+
+  ["test"] {
+    needs { "build" }
+    steps { new { id = "smoke"; run = "echo \"smoke test $APP in $REGION\" && sleep 0.8" } }
+  }
+
+  // Requires DEPLOY_TOKEN from the host environment: masked in output, excluded
+  // from the plan, and its absence fails fast.
+  ["deploy"] {
+    needs { "test" }
+    secrets { new { name = "DEPLOY_TOKEN" } }
+    steps {
+      new { id = "push"; run = "echo \"deploying $APP to $REGION with token=$DEPLOY_TOKEN\" && sleep 0.5" }
+      new { id = "verify"; run = "echo \"verifying deployment (token still masked: $DEPLOY_TOKEN)\"" }
+    }
+  }
+}

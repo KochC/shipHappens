@@ -1,0 +1,52 @@
+/// Resume / incremental-build demo — the Pkl port of demos/demo3.
+///
+/// Run it twice:
+///
+///     ship run demos/demo3/pipeline.pkl --resume            # first run: all jobs execute
+///     ship run demos/demo3/pipeline.pkl --resume            # second run: unchanged jobs resume instantly
+///     ship run demos/demo3/pipeline.pkl --resume --no-cache # force a full re-run
+///
+/// Each job declares Outputs and a cache input (this file), so on the second run
+/// their fingerprints match the prior success and they are restored from the
+/// cache instead of re-running — the TUI shows them completing in milliseconds
+/// with a "(cached)" tag and the summary reports "N resumed". Editing this file
+/// invalidates the affected jobs on the next run.
+amends "../../pkl/ship.pkl"
+
+name = "Resume Demo"
+
+jobs {
+  ["compile"] {
+    steps {
+      new {
+        id = "build"
+        run = "sleep 1.5 && echo binary > .demo3-app"
+        cache { inputs { "demos/demo3/pipeline.pkl" } }
+      }
+    }
+    outputs { ".demo3-app" }
+  }
+
+  ["assets"] {
+    steps {
+      new {
+        id = "bundle"
+        run = "sleep 1.2 && echo assets > .demo3-assets"
+        cache { inputs { "demos/demo3/pipeline.pkl" } }
+      }
+    }
+    outputs { ".demo3-assets" }
+  }
+
+  ["package"] {
+    needs { "compile"; "assets" }
+    steps {
+      new {
+        id = "archive"
+        run = "sleep 1.0 && echo pkg > .demo3-pkg"
+        cache { inputs { "demos/demo3/pipeline.pkl" } }
+      }
+    }
+    outputs { ".demo3-pkg" }
+  }
+}
