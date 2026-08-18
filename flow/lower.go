@@ -10,6 +10,7 @@ func (w *Workflow) ToPlan() *compiler.RunPlan {
 		jp := compiler.JobPlan{
 			ID:     j.id,
 			RunsOn: j.runsOn,
+			Image:  j.image,
 			Needs:  append([]string(nil), j.needs...),
 			Env:    j.env,
 		}

@@ -12,6 +12,7 @@ type RunPlan struct {
 type JobPlan struct {
 	ID     string
 	RunsOn string
+	Image  string // container image; if set, job runs in a container (RunsOn="container")
 	Needs  []string
 	Env    map[string]string
 	Steps  []StepPlan

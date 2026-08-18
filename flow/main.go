@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -15,6 +16,16 @@ import (
 	"github.com/chris/shiphappens/internal/scheduler"
 )
 
+// writePlan serializes the compiled plan to a JSON artifact ("Terraform plan,
+// but for CI").
+func writePlan(p *compiler.RunPlan, path string) error {
+	b, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
 // Main is the entry point for a pipeline program. It parses CLI flags,
 // compiles+validates the workflow, and runs (or prints) it, exiting the process
 // with an appropriate status code.
@@ -27,15 +38,19 @@ import (
 //	--changed[=<ref>]  only run jobs affected by git changes vs ref (default main)
 func Main(w *Workflow) {
 	var (
-		graphOnly bool
-		jobFlag   string
-		noCache   bool
+		graphOnly   bool
+		jobFlag     string
+		noCache     bool
+		compileOnly string
+		engine      string
 	)
 	changedVal := &optString{}
 	fs := flag.NewFlagSet(w.Name, flag.ExitOnError)
 	fs.BoolVar(&graphOnly, "graph", false, "print the execution graph and exit")
 	fs.StringVar(&jobFlag, "job", "", "run only this job (and its dependencies)")
 	fs.BoolVar(&noCache, "no-cache", false, "disable step caching")
+	fs.StringVar(&compileOnly, "compile", "", "write the compiled plan as JSON to the given path and exit")
+	fs.StringVar(&engine, "engine", "docker", "container engine for image jobs (docker|podman)")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(os.Args[1:])
 	changedSet := changedVal.set
@@ -52,6 +67,15 @@ func Main(w *Workflow) {
 	fmt.Println()
 
 	dag := graph.Build(plan)
+
+	if compileOnly != "" {
+		if err := writePlan(plan, compileOnly); err != nil {
+			logs.Failure("write plan: %v", err)
+			os.Exit(1)
+		}
+		logs.Success("✓ wrote compiled plan → %s", compileOnly)
+		return
+	}
 
 	if graphOnly {
 		printGraph(plan, dag)
@@ -96,6 +120,7 @@ func Main(w *Workflow) {
 		Workdir: wd,
 		NoCache: noCache,
 		Only:    only,
+		Engine:  engine,
 	})
 
 	fmt.Println()
@@ -106,7 +131,8 @@ func Main(w *Workflow) {
 	logs.Success("✓ %s passed in %s  (%d ran, %d cached)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached)
 }
 
-func stepCount(p *compiler.RunPlan) int {	n := 0
+func stepCount(p *compiler.RunPlan) int {
+	n := 0
 	for _, j := range p.Jobs {
 		n += len(j.Steps)
 	}

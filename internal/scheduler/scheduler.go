@@ -23,6 +23,7 @@ type Options struct {
 	NoCache bool
 	Only    map[string]bool // if non-nil, only these jobs run
 	MaxPar  int
+	Engine  string // container engine: "docker" (default) or "podman"
 }
 
 // Result summarizes a run.
@@ -37,7 +38,6 @@ type scheduler struct {
 	plan  *compiler.RunPlan
 	dag   *graph.DAG
 	opts  Options
-	run   runner.NativeRunner
 	store *cache.Store
 
 	cancel context.CancelFunc
@@ -132,16 +132,26 @@ func (s *scheduler) depsState(id string) (ready, blocked bool) {
 	return true, false
 }
 
+// runnerFor returns the appropriate runner for a job: a ContainerRunner when
+// the job declares an image, otherwise the NativeRunner.
+func (s *scheduler) runnerFor(job *compiler.JobPlan) runner.Runner {
+	if job.Image != "" {
+		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine}
+	}
+	return runner.NativeRunner{}
+}
+
 func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	defer s.wg.Done()
 	s.sem <- struct{}{}
 	defer func() { <-s.sem }()
 
+	run := s.runnerFor(job)
 	out := logs.Prefixed(job.ID)
 	jobFailed := false
 
 	for _, step := range job.Steps {
-		cached, ok := s.execStep(ctx, job, step, out)
+		cached, ok := s.execStep(ctx, run, job, step, out)
 		if cached {
 			continue
 		}
@@ -164,7 +174,7 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 }
 
 // execStep runs one step (consulting cache). Returns (cachedHit, ok).
-func (s *scheduler) execStep(ctx context.Context, job *compiler.JobPlan, step compiler.StepPlan, out io.Writer) (cached, ok bool) {
+func (s *scheduler) execStep(ctx context.Context, run runner.Runner, job *compiler.JobPlan, step compiler.StepPlan, out io.Writer) (cached, ok bool) {
 	if s.store != nil && step.Cache != nil {
 		key, err := cache.HashInputs(step.Run, s.opts.Workdir, job.Env, step.Cache.Inputs)
 		if err == nil && s.store.Has(key) {
@@ -175,7 +185,7 @@ func (s *scheduler) execStep(ctx context.Context, job *compiler.JobPlan, step co
 			s.mu.Unlock()
 			return true, true
 		}
-		res := s.run.Run(ctx, step, s.opts.Workdir, job.Env, out)
+		res := run.Run(ctx, step, s.opts.Workdir, job.Env, out)
 		s.mu.Lock()
 		s.ranCnt++
 		s.mu.Unlock()
@@ -190,7 +200,7 @@ func (s *scheduler) execStep(ctx context.Context, job *compiler.JobPlan, step co
 		return false, true
 	}
 
-	res := s.run.Run(ctx, step, s.opts.Workdir, job.Env, out)
+	res := run.Run(ctx, step, s.opts.Workdir, job.Env, out)
 	s.mu.Lock()
 	s.ranCnt++
 	s.mu.Unlock()

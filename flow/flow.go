@@ -16,6 +16,7 @@ type Workflow struct {
 type Job struct {
 	id     string
 	runsOn string
+	image  string
 	needs  []string
 	steps  []*Step
 	env    map[string]string
@@ -51,6 +52,10 @@ func (w *Workflow) Jobs() []*Job { return w.jobs }
 
 // RunsOn sets the execution backend label (default "native").
 func (j *Job) RunsOn(label string) *Job { j.runsOn = label; return j }
+
+// Image runs the job inside the given container image (Docker/Podman). Sets
+// runs-on to "container". The working tree is bind-mounted so caching works.
+func (j *Job) Image(ref string) *Job { j.image = ref; j.runsOn = "container"; return j }
 
 // Needs declares dependencies on other jobs.
 func (j *Job) Needs(deps ...*Job) *Job {
