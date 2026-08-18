@@ -10,14 +10,24 @@ import (
 	"github.com/chris/shiphappens/internal/graph"
 )
 
+// gitDiff is the injection point for running `git diff --name-only` (overridable
+// in tests). It returns raw stdout.
+var gitDiff = func(workdir string, args ...string) ([]byte, error) {
+	full := append([]string{"-C", workdir, "diff", "--name-only"}, args...)
+	return exec.Command("git", full...).Output()
+}
+
+// FilesFn is the indirection point for Files, overridable in tests of callers.
+var FilesFn = files
+
 // Files returns files changed vs the given base ref (e.g. "main").
-func Files(workdir, base string) ([]string, error) {
-	cmd := exec.Command("git", "-C", workdir, "diff", "--name-only", base+"...HEAD")
-	out, err := cmd.Output()
+func Files(workdir, base string) ([]string, error) { return FilesFn(workdir, base) }
+
+func files(workdir, base string) ([]string, error) {
+	out, err := gitDiff(workdir, base+"...HEAD")
 	if err != nil {
 		// fall back to uncommitted changes
-		cmd = exec.Command("git", "-C", workdir, "diff", "--name-only")
-		out, err = cmd.Output()
+		out, err = gitDiff(workdir)
 		if err != nil {
 			return nil, err
 		}

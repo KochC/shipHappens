@@ -128,9 +128,8 @@ func addFile(tw *tar.Writer, workdir, file string) error {
 }
 
 func (s *Store) flush() error {
-	b, err := json.MarshalIndent(s.index, "", "  ")
-	if err != nil {
-		return err
-	}
+	// json.MarshalIndent over a map[string]string cannot fail, so the error is
+	// intentionally not checked here.
+	b, _ := json.MarshalIndent(s.index, "", "  ")
 	return os.WriteFile(s.indexFP, b, 0o644)
 }

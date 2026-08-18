@@ -3,8 +3,6 @@ package runner
 import (
 	"context"
 	"io"
-	"os"
-	"os/exec"
 	"sort"
 	"time"
 
@@ -76,21 +74,6 @@ func (c ContainerRunner) Run(ctx context.Context, step compiler.StepPlan, workdi
 	start := time.Now()
 	bin := engineBinary(c.Engine)
 	args := c.buildArgs(step, workdir, env)
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Stdout = out
-	cmd.Stderr = out
-	cmd.Env = os.Environ()
-
-	err := cmd.Run()
-	res := StepResult{Duration: time.Since(start)}
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			res.ExitCode = ee.ExitCode()
-		} else {
-			res.ExitCode = 1
-		}
-		res.Err = err
-	}
-	return res
+	code, err := execRun(ctx, bin, args, out)
+	return runResult(code, err, start)
 }

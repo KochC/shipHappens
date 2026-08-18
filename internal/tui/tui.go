@@ -5,13 +5,19 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/chris/shiphappens/internal/scheduler"
 )
+
+// out is the render sink (overridable in tests).
+var out io.Writer = os.Stdout
+
+// SetOutput redirects TUI output; returns the previous sink.
+func SetOutput(w io.Writer) io.Writer { prev := out; out = w; return prev }
 
 type jobState struct {
 	status  string // pending, running, ok, failed, skipped
@@ -110,7 +116,7 @@ func (m *Model) c(color, s string) string {
 // Start hides the cursor and paints the first frame.
 func (m *Model) Start() {
 	if !m.noColor {
-		fmt.Fprint(os.Stdout, hideCur)
+		fmt.Fprint(out, hideCur)
 	}
 	m.render()
 	// tick so running timers update even without events
@@ -136,7 +142,7 @@ func (m *Model) Stop() {
 	m.mu.Unlock()
 	m.render()
 	if !m.noColor {
-		fmt.Fprint(os.Stdout, showCur)
+		fmt.Fprint(out, showCur)
 	}
 }
 
@@ -161,7 +167,7 @@ func (m *Model) render() {
 
 	// Rewind cursor over the previous frame.
 	if m.lines > 0 {
-		fmt.Fprintf(os.Stdout, "%s%dA", esc, m.lines)
+		fmt.Fprintf(out, "%s%dA", esc, m.lines)
 	}
 
 	var b []byte
@@ -218,7 +224,7 @@ func (m *Model) render() {
 	}
 	w(clr + summary + "\n")
 
-	fmt.Fprint(os.Stdout, string(b))
+	fmt.Fprint(out, string(b))
 	m.lines = len(m.order) + 2 // header + jobs + summary
 }
 
@@ -228,4 +234,3 @@ func JobOrderFromIDs(ids []string) []string {
 	return out
 }
 
-var _ = sort.Strings

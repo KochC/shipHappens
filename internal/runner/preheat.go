@@ -3,8 +3,6 @@ package runner
 import (
 	"context"
 	"io"
-	"os"
-	"os/exec"
 )
 
 // PreheatSpec describes warm-up work: pull an image and optionally run a
@@ -17,24 +15,8 @@ type PreheatSpec struct {
 	Workdir string
 }
 
-// Preheat pulls the image and, if Warm is set, runs it once (mounting the given
-// volumes) to prime shared caches. Errors are returned but treated as advisory
-// by callers.
-func Preheat(ctx context.Context, p PreheatSpec, out io.Writer) error {
-	bin := engineBinary(p.Engine)
-
-	pull := exec.CommandContext(ctx, bin, "pull", p.Image)
-	pull.Stdout = out
-	pull.Stderr = out
-	pull.Env = os.Environ()
-	if err := pull.Run(); err != nil {
-		return err
-	}
-
-	if p.Warm == "" {
-		return nil
-	}
-
+// warmArgs builds the `run` args for the warm command (pure/testable).
+func (p PreheatSpec) warmArgs() []string {
 	args := []string{"run", "--rm"}
 	if p.Workdir != "" {
 		args = append(args, "-v", p.Workdir+":/ship/work", "-w", "/ship/work")
@@ -43,10 +25,31 @@ func Preheat(ctx context.Context, p PreheatSpec, out io.Writer) error {
 		args = append(args, "-v", m)
 	}
 	args = append(args, p.Image, "sh", "-c", p.Warm)
+	return args
+}
 
-	warm := exec.CommandContext(ctx, bin, args...)
-	warm.Stdout = out
-	warm.Stderr = out
-	warm.Env = os.Environ()
-	return warm.Run()
+// Preheat pulls the image and, if Warm is set, runs it once (mounting the given
+// volumes) to prime shared caches. Errors are returned but treated as advisory
+// by callers.
+func Preheat(ctx context.Context, p PreheatSpec, out io.Writer) error {
+	bin := engineBinary(p.Engine)
+
+	if code, err := execRun(ctx, bin, []string{"pull", p.Image}, out); err != nil || code != 0 {
+		if err == nil {
+			err = errNonZero(code)
+		}
+		return err
+	}
+
+	if p.Warm == "" {
+		return nil
+	}
+
+	if code, err := execRun(ctx, bin, p.warmArgs(), out); err != nil || code != 0 {
+		if err == nil {
+			err = errNonZero(code)
+		}
+		return err
+	}
+	return nil
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/chris/shiphappens/internal/compiler"
@@ -33,33 +32,21 @@ type OverlayRunner struct {
 	UpperHost string // host directory to persist the upper diff layer
 }
 
+// mkdirAll is the injection point for creating the upper dir (overridable in tests).
+var mkdirAll = os.MkdirAll
+
 // Run mounts the overlay and executes step.Run in the merged view.
 func (o OverlayRunner) Run(ctx context.Context, step compiler.StepPlan, workdir string, env map[string]string, out io.Writer) StepResult {
 	start := time.Now()
 	bin := engineBinary(o.Engine)
 
-	if err := os.MkdirAll(o.UpperHost, 0o755); err != nil {
+	if err := mkdirAll(o.UpperHost, 0o755); err != nil {
 		return StepResult{ExitCode: 1, Err: err, Duration: time.Since(start)}
 	}
 
 	args := o.buildArgs(step, workdir, env)
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Stdout = out
-	cmd.Stderr = out
-	cmd.Env = os.Environ()
-
-	err := cmd.Run()
-	res := StepResult{Duration: time.Since(start)}
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			res.ExitCode = ee.ExitCode()
-		} else {
-			res.ExitCode = 1
-		}
-		res.Err = err
-	}
-	return res
+	code, err := execRun(ctx, bin, args, out)
+	return runResult(code, err, start)
 }
 
 // buildArgs constructs the engine CLI args (pure/testable). It bootstraps an
