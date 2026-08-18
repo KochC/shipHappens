@@ -101,6 +101,34 @@ standalone **`ship`** CLI.
 
 See how it compares to GitHub Actions: [docs/gha-gap-analysis.md](docs/gha-gap-analysis.md).
 
+## Install
+
+Install the `ship` CLI (Pkl pipelines also need the [`pkl`](https://pkl-lang.org)
+CLI — e.g. `brew install pkl`).
+
+**Install script** (prebuilt binary from the latest GitHub Release):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh | bash
+# pin a version / dir:
+curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh | VERSION=v0.1.0 BINDIR=~/.local/bin bash
+```
+
+**With Go** (any tagged version, or `@latest`):
+
+```bash
+go install github.com/chris/shiphappens/cmd/ship@latest
+```
+
+**Prebuilt binaries:** grab a `ship_<version>_<os>_<arch>` asset from the
+[Releases page](https://github.com/KochC/shipHappens/releases) (checksums in
+`checksums.txt`).
+
+```bash
+ship version
+ship run pipeline.pkl
+```
+
 ## Try the demos
 
 ```bash

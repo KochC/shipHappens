@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # create releases + upload assets
+
+jobs:
+  release:
+    name: build & publish ship binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+
+      - name: Build cross-platform binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          build() {
+            local os="$1" arch="$2" ext="${3:-}"
+            local out="ship_${VERSION}_${os}_${arch}${ext}"
+            echo "building $out"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "$LDFLAGS" -o "dist/${out}" ./cmd/ship
+          }
+          build linux   amd64
+          build linux   arm64
+          build darwin  amd64
+          build darwin  arm64
+          build windows amd64 .exe
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum ship_* > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/ship_*
+            dist/checksums.txt

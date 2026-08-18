@@ -18,6 +18,9 @@ import (
 	"github.com/chris/shiphappens/flow"
 )
 
+// version is set at build time via -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -28,6 +31,9 @@ func main() {
 	switch args[0] {
 	case "-h", "--help", "help":
 		usage()
+		os.Exit(0)
+	case "-v", "--version", "version":
+		fmt.Printf("ship %s\n", version)
 		os.Exit(0)
 	case "run":
 		if len(args) < 2 {
@@ -55,10 +61,11 @@ usage:
   ship run <pipeline.pkl|.json> [flags]   run a pipeline
   ship validate <pipeline.pkl|.json>      compile + validate only
   ship <pipeline.pkl|.json> [flags]       shorthand for `+"`ship run`"+`
+  ship version                            print the version
 
 flags: --job <id>  --resume  --changed[=ref]  --engine <docker|podman|apple>
        --mount <vol:/path>  --var <K=V>  --tui / --no-tui  --graph
-       --compile <out.json>  --no-cache  --no-preheat
+       --compile <out.json>  --no-cache  --no-preheat  --max-parallel <N>
 
 Pkl pipelines require the `+"`pkl`"+` CLI (https://pkl-lang.org).
 `)

@@ -18,3 +18,7 @@ demos/**/ship
 
 # demo scratch
 .flaky-done
+
+# release/build outputs
+/ship
+dist/
