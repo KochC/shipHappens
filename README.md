@@ -157,6 +157,17 @@ See [demos/README.md](demos/README.md) for details.
 
 ## Build & test
 
+Ship Happens **builds itself** — its own CI is a Ship Happens pipeline
+([`ci/pipeline.pkl`](ci/pipeline.pkl)): vet → test (race) ∥ coverage gate →
+build the `ship` CLI → validate the demo pipelines (including itself). Run it:
+
+```bash
+go build -o bin/ship ./cmd/ship
+./bin/ship run ci/pipeline.pkl        # 🚢 ship builds ship
+```
+
+Or the raw targets:
+
 ```bash
 make            # vet + test
 make cover-check   # 95% coverage gate

@@ -77,6 +77,11 @@ ship run pipeline.pkl --graph
 ship run <pipeline.pkl|plan.json> [flags]   # run
 ship validate <pipeline.pkl|plan.json>      # compile + validate only
 ship <pipeline.pkl> [flags]                 # shorthand for `ship run`
+ship cache du                               # cache size / object count
+ship cache prune --older-than-days 30       # GC by age
+ship cache prune --max-size-gb 5            # cap size (LRU eviction)
+ship cache prune --all                      # wipe the cache
+ship version
 ```
 
 Flags:

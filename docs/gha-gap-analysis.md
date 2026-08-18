@@ -69,7 +69,7 @@ future "server/remote" milestone, not the core runner.
 | `actions/cache` | ✅ (better) | content-addressed step cache, automatic |
 | Incremental resume | ✅ (bonus) | job fingerprint cache (`--resume`) — GHA has no equivalent |
 | `upload/download-artifact` | 🟡 | `Job.Outputs` persisted for resume only; no cross-job/external artifact retrieval |
-| Cache GC/eviction | ❌ | store grows unbounded |
+| Cache GC/eviction | ✅ | `ship cache du` / `ship cache prune --older-than-days/--max-size-gb/--all` (LRU) |
 | Prune intermediates | ✅ (bonus) | `CleanAfter` |
 
 ## 7. Concurrency, timeouts, retries, fail-fast

@@ -1,0 +1,63 @@
+/// Ship Happens building Ship Happens. 🚢
+///
+/// This pipeline builds, vets, tests, and gates the Ship Happens repo itself —
+/// dogfooding the tool. Run it locally:
+///
+///     ship run ci/pipeline.pkl              # full pipeline in the TUI
+///     ship run ci/pipeline.pkl --job test
+///     ship run ci/pipeline.pkl --changed    # only what git touched
+///
+/// It runs natively (no container) so it works anywhere Go is installed; the
+/// Go build/module caches are declared as step cache inputs for fast reruns.
+amends "../pkl/ship.pkl"
+
+import "../pkl/ship.pkl" as s
+
+name = "shiphappens self-build"
+
+// Fail fast statically; keep the whole thing offline-friendly (native steps).
+jobs {
+  ["vet"] = new s.Job {
+    steps {
+      new { id = "build"; run = "go build ./..."
+            cache = new s.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" } } }
+      new { id = "vet"; run = "go vet ./..." }
+    }
+  }
+
+  ["test"] = new s.Job {
+    needs { "vet" }
+    steps {
+      new { id = "race"; run = "go test -race ./..."
+            cache = new s.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" } } }
+    }
+  }
+
+  ["cover"] = new s.Job {
+    needs { "vet" }
+    steps {
+      new { id = "gate"; run = "make cover-check" }
+    }
+  }
+
+  ["build-cli"] = new s.Job {
+    needs { "test"; "cover" }
+    steps {
+      new { id = "build"; run = "go build -o bin/ship ./cmd/ship"
+            cache = new s.Cache { inputs { "**/*.go"; "go.mod"; "go.sum" }; outputs { "bin/ship" } } }
+      new { id = "smoke"; run = "./bin/ship version" }
+    }
+    outputs { "bin/ship" }
+  }
+
+  // Prove the CLI works by validating our own demo pipelines with the freshly
+  // built binary — a nice recursive touch.
+  ["validate-demos"] = new s.Job {
+    needs { "build-cli" }
+    steps {
+      new { id = "pkl-app";     run = "./bin/ship validate demos/pkl-app/pipeline.pkl" }
+      new { id = "reusable";    run = "./bin/ship validate demos/reusable-app/pipeline.pkl" }
+      new { id = "self";        run = "./bin/ship validate ci/pipeline.pkl" }
+    }
+  }
+}

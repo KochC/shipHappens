@@ -55,3 +55,26 @@ func TestStorePersistsIndexAcrossOpen(t *testing.T) {
 		t.Fatal("reopened store should see previously saved key")
 	}
 }
+
+func TestSaveRestorePreservesExecutableBit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	s, _ := Open()
+	work := t.TempDir()
+	bin := filepath.Join(work, "app")
+	os.WriteFile(bin, []byte("#!/bin/sh\necho hi\n"), 0o755) // executable
+
+	if err := s.Save("k", work, []string{"app"}); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(bin)
+	if err := s.Restore("k", work); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("restored file lost its executable bit: %v", fi.Mode())
+	}
+}

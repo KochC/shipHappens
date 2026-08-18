@@ -22,3 +22,6 @@ demos/**/ship
 # release/build outputs
 /ship
 dist/
+
+# self-build output
+/bin/

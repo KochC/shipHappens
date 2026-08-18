@@ -1,59 +1,39 @@
 name: CI
 
+# Minimal CI for a private repo — one job on pushes to main.
+# Dogfoods Ship Happens: it builds the `ship` CLI, then runs the repo's own
+# pipeline (ci/pipeline.pkl) which does the vet/test/cover/build/validate.
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: build · vet · test · cover
+  ship-it:
+    name: ship builds ship
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-          cache: true
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test (race)
-        run: go test -race ./...
-
-      - name: Coverage gate (>=95% average)
-        run: make cover-check
-
-  # Cross-compile the ship CLI for the release matrix to catch build breaks
-  # early (no artifacts uploaded here; the release workflow does that).
-  crosscompile:
-    name: cross-compile ship
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { goos: linux,   goarch: amd64 }
-          - { goos: linux,   goarch: arm64 }
-          - { goos: darwin,  goarch: amd64 }
-          - { goos: darwin,  goarch: arm64 }
-          - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
           cache: true
+
+      - name: Install pkl
+        run: |
+          curl -fsSL -o /usr/local/bin/pkl \
+            https://github.com/apple/pkl/releases/latest/download/pkl-linux-amd64
+          chmod +x /usr/local/bin/pkl
+          pkl --version
+
       - name: Build ship
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: go build -o /dev/null ./cmd/ship
+        run: go build -o bin/ship ./cmd/ship
+
+      - name: ship builds ship 🚢
+        run: ./bin/ship run ci/pipeline.pkl --no-tui

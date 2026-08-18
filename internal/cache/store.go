@@ -92,7 +92,7 @@ func (s *Store) Restore(key, workdir string) error {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err
 		}
-		out, err := os.Create(dest)
+		out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(hdr.Mode).Perm())
 		if err != nil {
 			return err
 		}
@@ -101,6 +101,8 @@ func (s *Store) Restore(key, workdir string) error {
 			return err
 		}
 		out.Close()
+		// Ensure the mode is applied even if the file pre-existed with other perms.
+		_ = os.Chmod(dest, os.FileMode(hdr.Mode).Perm())
 	}
 	return nil
 }
@@ -114,7 +116,7 @@ func addFile(tw *tar.Writer, workdir, file string) error {
 	if err != nil {
 		return err
 	}
-	hdr := &tar.Header{Name: rel, Mode: 0o644, Size: fi.Size()}
+	hdr := &tar.Header{Name: rel, Mode: int64(fi.Mode().Perm()), Size: fi.Size()}
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
