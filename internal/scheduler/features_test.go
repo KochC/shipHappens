@@ -1,0 +1,61 @@
+package scheduler
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/chris/shiphappens/internal/runner"
+)
+
+func TestCleanAfterPrunesOnSuccess(t *testing.T) {
+	work := t.TempDir()
+	// job creates a build dir then it should be pruned by CleanAfter.
+	p := &compiler.RunPlan{Name: "T", Jobs: []compiler.JobPlan{
+		{ID: "a",
+			Steps:      []compiler.StepPlan{{ID: "s", Run: "mkdir -p buildtmp && echo x > buildtmp/f"}},
+			CleanAfter: []string{"buildtmp"}},
+	}}
+	res := Run(context.Background(), p, Options{Workdir: work, NoCache: true})
+	if res.Failed {
+		t.Fatalf("run failed: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(work, "buildtmp")); !os.IsNotExist(err) {
+		t.Fatalf("CleanAfter should have removed buildtmp; stat err=%v", err)
+	}
+}
+
+func TestCleanAfterKeptOnFailure(t *testing.T) {
+	work := t.TempDir()
+	p := &compiler.RunPlan{Name: "T", Jobs: []compiler.JobPlan{
+		{ID: "a",
+			Steps:      []compiler.StepPlan{{ID: "s", Run: "mkdir -p buildtmp && exit 1"}},
+			CleanAfter: []string{"buildtmp"}},
+	}}
+	res := Run(context.Background(), p, Options{Workdir: work, NoCache: true})
+	if !res.Failed {
+		t.Fatal("expected failure")
+	}
+	if _, err := os.Stat(filepath.Join(work, "buildtmp")); err != nil {
+		t.Fatalf("failed job's dir should be kept for inspection; stat err=%v", err)
+	}
+}
+
+func TestRunnerForDispatch(t *testing.T) {
+	s := &scheduler{opts: Options{Engine: "docker", Workdir: "/w"}}
+
+	if _, ok := s.runnerFor(&compiler.JobPlan{ID: "n"}).(runner.NativeRunner); !ok {
+		t.Error("no image -> NativeRunner")
+	}
+	if _, ok := s.runnerFor(&compiler.JobPlan{ID: "c", Image: "img"}).(runner.ContainerRunner); !ok {
+		t.Error("image -> ContainerRunner")
+	}
+	ov := s.runnerFor(&compiler.JobPlan{ID: "o", Image: "img", Overlay: true})
+	if or, ok := ov.(runner.OverlayRunner); !ok {
+		t.Error("image+overlay -> OverlayRunner")
+	} else if or.UpperHost == "" {
+		t.Error("OverlayRunner should have an UpperHost path")
+	}
+}

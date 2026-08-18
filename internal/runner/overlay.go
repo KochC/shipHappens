@@ -42,37 +42,7 @@ func (o OverlayRunner) Run(ctx context.Context, step compiler.StepPlan, workdir 
 		return StepResult{ExitCode: 1, Err: err, Duration: time.Since(start)}
 	}
 
-	args := []string{
-		"run", "--rm",
-		// Overlay requires the ability to mount inside the container.
-		"--privileged",
-		"-v", workdir + ":/ship/work",
-		"-v", o.UpperHost + ":/ship/overlay/upper",
-		"-w", "/ship/merged",
-	}
-	if o.Network != nil && !*o.Network {
-		args = append(args, "--network", "none")
-	}
-	for _, m := range o.Mounts {
-		args = append(args, "-v", m)
-	}
-	for k, v := range env {
-		args = append(args, "-e", k+"="+v)
-	}
-
-	// The bootstrap script sets up the overlay then runs the user command in it.
-	bootstrap := fmt.Sprintf(`set -e
-mkdir -p /ship/overlay/upper /ship/overlay/work /ship/merged
-mount -t overlay overlay -o lowerdir=/ship/work,upperdir=/ship/overlay/upper,workdir=/ship/overlay/work /ship/merged 2>/dev/null || {
-  echo "overlay mount unavailable; falling back to direct execution in /ship/work" >&2
-  cd /ship/work
-  exec sh -c %s
-}
-cd /ship/merged
-sh -c %s
-`, shQuote(step.Run), shQuote(step.Run))
-
-	args = append(args, o.Image, "sh", "-c", bootstrap)
+	args := o.buildArgs(step, workdir, env)
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdout = out
@@ -90,6 +60,42 @@ sh -c %s
 		res.Err = err
 	}
 	return res
+}
+
+// buildArgs constructs the engine CLI args (pure/testable). It bootstraps an
+// overlayfs mount inside the container, falling back to direct execution when
+// overlay is unavailable.
+func (o OverlayRunner) buildArgs(step compiler.StepPlan, workdir string, env map[string]string) []string {
+	args := []string{
+		"run", "--rm",
+		"--privileged",
+		"-v", workdir + ":/ship/work",
+		"-v", o.UpperHost + ":/ship/overlay/upper",
+		"-w", "/ship/merged",
+	}
+	if o.Network != nil && !*o.Network {
+		args = append(args, "--network", "none")
+	}
+	for _, m := range o.Mounts {
+		args = append(args, "-v", m)
+	}
+	for _, k := range sortedKeys(env) {
+		args = append(args, "-e", k+"="+env[k])
+	}
+
+	bootstrap := fmt.Sprintf(`set -e
+mkdir -p /ship/overlay/upper /ship/overlay/work /ship/merged
+mount -t overlay overlay -o lowerdir=/ship/work,upperdir=/ship/overlay/upper,workdir=/ship/overlay/work /ship/merged 2>/dev/null || {
+  echo "overlay mount unavailable; falling back to direct execution in /ship/work" >&2
+  cd /ship/work
+  exec sh -c %s
+}
+cd /ship/merged
+sh -c %s
+`, shQuote(step.Run), shQuote(step.Run))
+
+	args = append(args, o.Image, "sh", "-c", bootstrap)
+	return args
 }
 
 // shQuote single-quotes a string for safe embedding inside a `sh -c '...'`.

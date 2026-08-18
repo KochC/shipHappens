@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"time"
 
 	"github.com/chris/shiphappens/internal/compiler"
@@ -40,11 +41,9 @@ func engineBinary(engine string) string {
 	}
 }
 
-// Run executes step.Run via `<engine> run --rm -v <workdir>:/ship/work -w /ship/work <image> sh -c ...`.
-func (c ContainerRunner) Run(ctx context.Context, step compiler.StepPlan, workdir string, env map[string]string, out io.Writer) StepResult {
-	start := time.Now()
-	bin := engineBinary(c.Engine)
-
+// buildArgs constructs the engine CLI args for a step. Pure and deterministic
+// (env keys are sorted) so it can be unit-tested without invoking a container.
+func (c ContainerRunner) buildArgs(step compiler.StepPlan, workdir string, env map[string]string) []string {
 	args := []string{
 		"run", "--rm",
 		"-v", workdir + ":/ship/work",
@@ -56,10 +55,27 @@ func (c ContainerRunner) Run(ctx context.Context, step compiler.StepPlan, workdi
 	for _, m := range c.Mounts {
 		args = append(args, "-v", m)
 	}
-	for k, v := range env {
-		args = append(args, "-e", k+"="+v)
+	for _, k := range sortedKeys(env) {
+		args = append(args, "-e", k+"="+env[k])
 	}
 	args = append(args, c.Image, "sh", "-c", step.Run)
+	return args
+}
+
+func sortedKeys(m map[string]string) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
+// Run executes step.Run via `<engine> run --rm -v <workdir>:/ship/work -w /ship/work <image> sh -c ...`.
+func (c ContainerRunner) Run(ctx context.Context, step compiler.StepPlan, workdir string, env map[string]string, out io.Writer) StepResult {
+	start := time.Now()
+	bin := engineBinary(c.Engine)
+	args := c.buildArgs(step, workdir, env)
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdout = out
