@@ -10,12 +10,16 @@ type RunPlan struct {
 
 // JobPlan is a single node in the execution DAG.
 type JobPlan struct {
-	ID     string
-	RunsOn string
-	Image  string // container image; if set, job runs in a container (RunsOn="container")
-	Needs  []string
-	Env    map[string]string
-	Steps  []StepPlan
+	ID         string
+	RunsOn     string
+	Image      string // container image; if set, job runs in a container (RunsOn="container")
+	Needs      []string
+	Env        map[string]string
+	Steps      []StepPlan
+	CleanAfter []string // path globs deleted after the job completes (prune build intermediates)
+	// Network controls container networking for image jobs. nil = engine
+	// default (on). false = isolated (no network). true = network on.
+	Network *bool
 }
 
 // StepPlan is one executable unit within a job.

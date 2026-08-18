@@ -8,19 +8,32 @@ import (
 
 // Workflow is a pipeline definition being built by the DSL.
 type Workflow struct {
-	Name string
-	jobs []*Job
+	Name    string
+	jobs    []*Job
+	preheat []Preheat
+}
+
+// Preheat is warm-up work performed before the DAG runs: pulling a container
+// image and/or running a one-off warm command inside it (e.g. priming a shared
+// toolchain cache volume). Preheats run concurrently and their results are not
+// part of the graph — a failed preheat is a warning, not a build failure.
+type Preheat struct {
+	Image  string   // image to pull (required)
+	Warm   string   // optional shell command to run in the image to prime caches
+	Mounts []string // volume mounts for the warm command (e.g. shared cache vol)
 }
 
 // Job is a node in the pipeline being built.
 type Job struct {
-	id     string
-	runsOn string
-	image  string
-	needs  []string
-	steps  []*Step
-	env    map[string]string
-	line   string // "file.go:NN" of the .Job(...) call site
+	id         string
+	runsOn     string
+	image      string
+	needs      []string
+	steps      []*Step
+	env        map[string]string
+	cleanAfter []string
+	network    *bool
+	line       string // "file.go:NN" of the .Job(...) call site
 }
 
 // Step is one command within a job.
@@ -50,6 +63,17 @@ func (w *Workflow) Job(id string) *Job {
 // Jobs returns the defined jobs (read-only use by Main/graph).
 func (w *Workflow) Jobs() []*Job { return w.jobs }
 
+// Preheat registers warm-up work (image pull + optional cache-priming command)
+// to run concurrently before the DAG executes, so jobs don't stall on cold
+// image pulls or empty toolchain caches.
+func (w *Workflow) Preheat(p Preheat) *Workflow {
+	w.preheat = append(w.preheat, p)
+	return w
+}
+
+// Preheats returns the registered preheat specs.
+func (w *Workflow) Preheats() []Preheat { return w.preheat }
+
 // RunsOn sets the execution backend label (default "native").
 func (j *Job) RunsOn(label string) *Job { j.runsOn = label; return j }
 
@@ -74,6 +98,23 @@ func (j *Job) NeedsID(ids ...string) *Job {
 
 // Env sets an environment variable for all steps in the job.
 func (j *Job) Env(key, val string) *Job { j.env[key] = val; return j }
+
+// Network enables (true) or disables (false) container networking for this
+// image job. When unset, the engine default (network on) applies.
+func (j *Job) Network(enabled bool) *Job { j.network = &enabled; return j }
+
+// Offline runs the job's container with no network access — the default-secure
+// choice for steps that only compile local sources. Steps that must fetch
+// (dependencies, toolchains, registry) opt in via Network(true).
+func (j *Job) Offline() *Job { b := false; j.network = &b; return j }
+
+// CleanAfter deletes the given path globs (relative to the workdir) after the
+// job finishes — used to prune large build intermediates (e.g. ".pio/build/**")
+// once the small final artifacts have been collected, minimizing disk usage.
+func (j *Job) CleanAfter(globs ...string) *Job {
+	j.cleanAfter = append(j.cleanAfter, globs...)
+	return j
+}
 
 // Run appends a shell-command step to the job.
 func (j *Job) Run(name, command string) *Job {

@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/chris/shiphappens/internal/changed"
 	"github.com/chris/shiphappens/internal/compiler"
 	"github.com/chris/shiphappens/internal/graph"
 	"github.com/chris/shiphappens/internal/logs"
+	"github.com/chris/shiphappens/internal/runner"
 	"github.com/chris/shiphappens/internal/scheduler"
 )
 
@@ -44,6 +46,7 @@ func Main(w *Workflow) {
 		noCache     bool
 		compileOnly string
 		engine      string
+		noPreheat   bool
 	)
 	changedVal := &optString{}
 	mounts := &sliceFlag{}
@@ -52,7 +55,8 @@ func Main(w *Workflow) {
 	fs.StringVar(&jobFlag, "job", "", "run only this job (and its dependencies)")
 	fs.BoolVar(&noCache, "no-cache", false, "disable step caching")
 	fs.StringVar(&compileOnly, "compile", "", "write the compiled plan as JSON to the given path and exit")
-	fs.StringVar(&engine, "engine", "docker", "container engine for image jobs (docker|podman)")
+	fs.StringVar(&engine, "engine", "docker", "container engine for image jobs (docker|podman|apple)")
+	fs.BoolVar(&noPreheat, "no-preheat", false, "skip image/cache preheating before the run")
 	fs.Var(mounts, "mount", "extra container volume spec for image jobs (repeatable), e.g. vol:/root/.platformio")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(os.Args[1:])
@@ -119,6 +123,15 @@ func Main(w *Workflow) {
 	defer stop()
 
 	wd, _ := os.Getwd()
+
+	// Preheat: pull images + prime shared caches concurrently before the DAG,
+	// so jobs don't stall on cold pulls / empty toolchain volumes. Advisory —
+	// failures warn but never block the build. Skipped with --no-preheat.
+	if !noPreheat && len(w.preheat) > 0 {
+		runPreheats(ctx, w.preheat, engine, wd, []string(*mounts))
+		fmt.Println()
+	}
+
 	res := scheduler.Run(ctx, plan, scheduler.Options{
 		Workdir: wd,
 		NoCache: noCache,
@@ -135,8 +148,34 @@ func Main(w *Workflow) {
 	logs.Success("✓ %s passed in %s  (%d ran, %d cached)", plan.Name, res.Duration.Round(1e6), res.Ran, res.Cached)
 }
 
-func stepCount(p *compiler.RunPlan) int {
-	n := 0
+// runPreheats warms images + caches concurrently. Advisory: logs failures but
+// never affects exit status.
+func runPreheats(ctx context.Context, specs []Preheat, engine, workdir string, mounts []string) {
+	logs.Header("Preheating %d image(s)/cache(s)…", len(specs))
+	var wg sync.WaitGroup
+	for _, p := range specs {
+		wg.Add(1)
+		go func(p Preheat) {
+			defer wg.Done()
+			out := logs.Prefixed("preheat")
+			err := runner.Preheat(ctx, runner.PreheatSpec{
+				Image:   p.Image,
+				Warm:    p.Warm,
+				Mounts:  append(append([]string(nil), mounts...), p.Mounts...),
+				Engine:  engine,
+				Workdir: workdir,
+			}, out)
+			if err != nil {
+				logs.Failure("preheat %s: %v (advisory — continuing)", p.Image, err)
+			} else {
+				logs.Success("✓ preheated %s", p.Image)
+			}
+		}(p)
+	}
+	wg.Wait()
+}
+
+func stepCount(p *compiler.RunPlan) int {	n := 0
 	for _, j := range p.Jobs {
 		n += len(j.Steps)
 	}

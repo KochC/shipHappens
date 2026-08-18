@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -137,7 +139,7 @@ func (s *scheduler) depsState(id string) (ready, blocked bool) {
 // the job declares an image, otherwise the NativeRunner.
 func (s *scheduler) runnerFor(job *compiler.JobPlan) runner.Runner {
 	if job.Image != "" {
-		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts}
+		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts, Network: job.Network}
 	}
 	return runner.NativeRunner{}
 }
@@ -171,7 +173,23 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	}
 	s.mu.Unlock()
 
+	// Prune build intermediates to minimize disk usage (only on success, so a
+	// failed build can still be inspected).
+	if !jobFailed {
+		s.cleanAfter(job)
+	}
+
 	s.launch(ctx)
+}
+
+// cleanAfter deletes the job's CleanAfter globs relative to the workdir.
+func (s *scheduler) cleanAfter(job *compiler.JobPlan) {
+	for _, g := range job.CleanAfter {
+		matches, _ := filepath.Glob(filepath.Join(s.opts.Workdir, g))
+		for _, m := range matches {
+			_ = os.RemoveAll(m)
+		}
+	}
 }
 
 // execStep runs one step (consulting cache). Returns (cachedHit, ok).

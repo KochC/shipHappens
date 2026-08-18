@@ -8,11 +8,13 @@ func (w *Workflow) ToPlan() *compiler.RunPlan {
 	p := &compiler.RunPlan{Name: w.Name}
 	for _, j := range w.jobs {
 		jp := compiler.JobPlan{
-			ID:     j.id,
-			RunsOn: j.runsOn,
-			Image:  j.image,
-			Needs:  append([]string(nil), j.needs...),
-			Env:    j.env,
+			ID:         j.id,
+			RunsOn:     j.runsOn,
+			Image:      j.image,
+			Needs:      append([]string(nil), j.needs...),
+			Env:        j.env,
+			CleanAfter: append([]string(nil), j.cleanAfter...),
+			Network:    j.network,
 		}
 		for _, s := range j.steps {
 			sp := compiler.StepPlan{ID: s.name, Run: s.run}
