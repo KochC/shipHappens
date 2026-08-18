@@ -46,6 +46,7 @@ type runOpts struct {
 	engine      string
 	noPreheat   bool
 	useTUI      bool
+	noTUI       bool
 	resume      bool
 	changedSet  bool
 	changedRef  string
@@ -68,6 +69,7 @@ func parseFlags(name string, argv []string) runOpts {
 	fs.StringVar(&o.engine, "engine", "docker", "container engine for image jobs (docker|podman|apple)")
 	fs.BoolVar(&o.noPreheat, "no-preheat", false, "skip image/cache preheating before the run")
 	fs.BoolVar(&o.useTUI, "tui", false, "render a live status dashboard instead of streaming logs")
+	fs.BoolVar(&o.noTUI, "no-tui", false, "force streaming logs even if the program defaults to the TUI")
 	fs.BoolVar(&o.resume, "resume", false, "skip jobs whose fingerprint matches a prior successful run (incremental)")
 	fs.Var(mounts, "mount", "extra container volume spec for image jobs (repeatable), e.g. vol:/root/.platformio")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
@@ -88,20 +90,21 @@ func Main(w *Workflow) {
 	osExit(run(w, parseFlags(w.Name, os.Args[1:])))
 }
 
-// RunWithTUI is like Main but forces the live TUI dashboard on (equivalent to
-// passing --tui). Other CLI flags are still honored. Handy for demos and for
-// programs that always want the dashboard.
+// RunWithTUI is like Main but defaults the live TUI dashboard on (as if --tui
+// were passed). Users can still force streaming logs with --no-tui. Other CLI
+// flags are honored. Handy for demos and programs that want the dashboard.
 func RunWithTUI(w *Workflow) {
 	o := parseFlags(w.Name, os.Args[1:])
-	o.useTUI = true
+	o.useTUI = !o.noTUI
 	osExit(run(w, o))
 }
 
-// RunWithTUIResume forces both the live TUI and resume/incremental mode on
-// (equivalent to --tui --resume). Other CLI flags are still honored.
+// RunWithTUIResume defaults both the live TUI and resume/incremental mode on
+// (as if --tui --resume). --no-tui still disables the dashboard. Other CLI
+// flags are honored.
 func RunWithTUIResume(w *Workflow) {
 	o := parseFlags(w.Name, os.Args[1:])
-	o.useTUI = true
+	o.useTUI = !o.noTUI
 	o.resume = true
 	osExit(run(w, o))
 }
