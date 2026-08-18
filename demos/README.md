@@ -31,3 +31,43 @@ invalidates the affected jobs on the next run. `--no-cache` forces a full re-run
 
 > Tip: any pipeline gets the dashboard with the `--tui` flag; these demos just
 > enable it programmatically via `flow.RunWithTUI` / `flow.RunWithTUIResume`.
+
+---
+
+## Real language-stack demos (containerized)
+
+These run **actual** lint/test/build tooling for a real project, in containers,
+shown in the live TUI. They require a container engine (Docker/Podman/Apple).
+Each demo ships a small real app plus its Ship Happens pipeline.
+
+```bash
+go run ./demos/python-app   # ruff + pytest + wheel build  (python:3.12-slim)
+go run ./demos/go-app       # go vet + go test + go build  (golang:1.22-alpine)
+go run ./demos/vue-app      # npm install → vitest + vite build (node:20-alpine)
+```
+
+Common flags (all demos): `--job <id>`, `--resume`, `--no-cache`,
+`--no-tui` (stream tool logs for debugging), `--graph`.
+
+### python-app
+`demos/python-app/` — a tiny library (`slugify`, `fib`) with pytest. Pipeline:
+`lint` (ruff) and `test` (pytest) run in parallel, then `build` produces a wheel
+in `dist/`. First run installs tools (~15–20s); reruns hit the step cache.
+
+### go-app
+`demos/go-app/` — a small `calc` module (in `src/`, its own `go.mod`) with unit
+tests. Pipeline: `vet` + `test` in parallel, then `build` compiles a binary.
+Go's module/build caches are kept on the shared working tree so parallel jobs
+reuse them.
+
+### vue-app
+`demos/vue-app/` — a Vue 3 + Vite Counter component with a Vitest test. Pipeline:
+`install` (npm) populates `node_modules` on the shared tree, then `test`
+(vitest) and `build` (vite) run in parallel. The first `install` is
+network-heavy; declaring `node_modules` as the install job's `Outputs` lets
+`--resume` skip it on unchanged `package.json`.
+
+> Build artifacts (`node_modules/`, `dist/`, `bin/`, wheels, caches) are written
+> by the container into the mounted tree and are git-ignored. `--no-tui` shows
+> the real tool output when a job fails.
+

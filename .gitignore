@@ -2,3 +2,13 @@
 coverage.out
 coverage.html
 .demo3-*
+
+# Demo build artifacts (generated in containers, at any depth under demos/)
+demos/**/node_modules/
+demos/**/dist/
+demos/**/bin/
+demos/**/__pycache__/
+demos/**/.pytest_cache/
+demos/**/*.egg-info/
+demos/**/.gocache/
+demos/**/.gomodcache/
