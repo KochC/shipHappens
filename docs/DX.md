@@ -213,6 +213,32 @@ this to take effect; otherwise it logs a warning and falls back to host tools)
 and prepends the pinned bin dirs to each step's PATH. Container jobs (`image`)
 use the image's tools and ignore `toolchain`.
 
+**Any mise backend works as the key** — the key is passed to mise verbatim — so
+you can pin far more than the built-in languages:
+
+```pkl
+toolchain {
+  ["go"] = "1.22.5"                  // core tools
+  ["node"] = "20.11.0"
+  ["pipx:platformio"] = "6.1.11"     // PlatformIO (firmware) → `pio run`
+  ["flutter"] = "3.24.0"             // Flutter + Dart → `flutter build apk|ios`
+  ["gem:cocoapods"] = "1.15.2"       // iOS pods
+  ["gradle"] = "8.7"                 // Android/Gradle
+}
+```
+
+Backend-prefixed keys: `pipx:`, `npm:`, `cargo:`, `gem:`, `aqua:`, `vfox:`, … —
+anything mise's registry supports (`mise registry` to browse).
+
+> **Reproducible means the *versions*.** The tools/SDKs you pin are exact and
+> cached under `~/.local/share/mise`. What a tool then downloads at build time
+> (PlatformIO platform packages, Flutter's Android SDK/NDK, Gradle/Pod deps)
+> should be pinned in its own manifest (`platformio.ini`, `pubspec.lock`,
+> Gradle, `Podfile.lock`) and cached with step `cache` inputs/outputs. iOS
+> builds still require macOS + Xcode (Apple licensing keeps Xcode off mise; use
+> `aqua:XcodesOrg/xcodes` to select a version). For a pinned OS/libc too, a
+> container image remains the stronger guarantee — Ship supports both.
+
 ---
 
 ## 6. Variables & secrets

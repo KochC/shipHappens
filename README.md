@@ -25,6 +25,7 @@ for agents, and **actually-enforced** network egress.
 [**Why**](#-why-ship-happens) ·
 [**Features**](#-features) ·
 [**MCP for agents**](#-mcp--drive-ci-from-your-agent) ·
+[**Native toolchains**](#-reproducible-native-toolchains-no-container) ·
 [**Install**](#-install) ·
 [**Docs**](docs/DX.md)
 
@@ -101,6 +102,7 @@ ship run pipeline.pkl --tui      # live dashboard
 | ⚡ **Cache everything safe** | Content-addressed step cache **plus** job-level resume: skip whole unchanged jobs and restore their artifacts. |
 | 🧵 **Fast by design** | Parallel DAG across every core; `--changed` runs only what git touched. |
 | 📐 **Typed, declarative** | Pipelines in Pkl (sandboxed, reviewable). A Go DSL and raw JSON plans lower to the same engine. |
+| 🧰 **Reproducible, no container** | Pin exact tool/SDK versions (Go, Node, Python, **PlatformIO**, **Flutter**, …) that run natively — container-grade pinning without the daemon. |
 | 🔒 **Actually secure** | Offline-by-default containers and egress allow-lists **enforced by a filtering proxy** — not just documented. |
 | 🤖 **Agent-native** | A built-in MCP server lets agents/IDEs validate, run (async), and poll pipelines. |
 | 🪶 **Zero runtime deps** | Pure Go standard library. One static binary. |
@@ -189,6 +191,98 @@ and polls on its own cadence, never blocking and never accidentally re-running
 > scaffolded `pipeline.pkl` validates immediately — no network, no auth. (If the
 > schema is ever published as a public Pkl package, `amends "package://…/ship@1"`
 > is the zero-vendoring alternative.)
+
+---
+
+## 🧰 Reproducible native toolchains (no container)
+
+Pin exact tool versions per workflow or per job and Ship runs steps **natively** —
+no image, no Docker daemon — with those exact versions on the step `PATH`.
+Backed by [mise](https://mise.jdx.dev): Ship installs the pinned versions
+(cached under `~/.local/share/mise`) and prepends their bin dirs. It's
+container-grade version pinning without the container.
+
+```pkl
+amends ".ship/ship.pkl"
+name = "Reproducible"
+
+// Pin workflow-wide; a job may override with its own.
+toolchain { ["go"] = "1.22.5" }
+
+jobs {
+  ["build"] {
+    steps { new { id = "compile"; run = "go build ./..." } }
+  }
+  ["legacy"] {
+    toolchain { ["go"] = "1.21.13" }   // per-job override
+    steps { new { id = "check"; run = "go version" } }
+  }
+}
+```
+
+The `toolchain` key is passed to mise verbatim, so **any mise backend** works as
+the key — not just the built-in tools. That means you can pin whole SDK stacks:
+
+| Use case | Pin it as | Verified |
+|---|---|:---:|
+| Go / Node / Python / Rust | `["go"]="1.22.5"`, `["node"]="20.11.0"`, `["python"]="3.12.4"` | ✅ |
+| **PlatformIO** (embedded/firmware) | `["pipx:platformio"] = "6.1.11"` → `pio run` | ✅ |
+| **Flutter + Dart** (mobile) | `["flutter"] = "3.24.0"` → `flutter build …` | ✅ |
+| Android SDK / Gradle / Java / Kotlin | `["java"]`, `["gradle"]`, `["vfox:android-sdk"]`, `["kotlin"]` | mise-supported |
+| iOS helpers | `["gem:cocoapods"]`, `["aqua:XcodesOrg/xcodes"]` | mise-supported |
+| Any pipx / npm / cargo / gem / aqua tool | `["pipx:…"]`, `["npm:…"]`, `["cargo:…"]`, `["gem:…"]`, `["aqua:…"]` | ✅ |
+
+<details>
+<summary><b>PlatformIO — a firmware build, natively pinned</b></summary>
+
+```pkl
+toolchain { ["pipx:platformio"] = "6.1.11" }
+jobs {
+  ["firmware"] {
+    steps {
+      new { id = "build"; run = "pio run -e myenv"
+            cache { inputs { "src/**"; "platformio.ini" }; outputs { ".pio/build/**" } } }
+      new { id = "test"; run = "pio test" }
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Flutter — build Android & iOS, natively pinned</b></summary>
+
+```pkl
+toolchain { ["flutter"] = "3.24.0" }   // brings Dart 3.5.0
+jobs {
+  ["analyze"] { steps { new { id = "a"; run = "flutter analyze" } } }
+  ["test"]    { steps { new { id = "t"; run = "flutter test" } } }
+  ["android"] {
+    needs { "analyze"; "test" }
+    steps { new { id = "apk"; run = "flutter build apk --release"
+                  cache { outputs { "build/app/outputs/**" } } } }
+  }
+  ["ios"] {
+    needs { "analyze"; "test" }
+    steps { new { id = "ipa"; run = "flutter build ios --release --no-codesign" } }
+  }
+}
+```
+
+</details>
+
+> **What's reproducible, honestly:** the **tool/SDK versions** you pin are exact
+> and cached. iOS builds still need macOS + Xcode (Apple's licensing keeps Xcode
+> off mise — pin the rest and use `xcodes` to select an Xcode). Anything a tool
+> then fetches at build time (PlatformIO platform packages, Flutter's Android
+> SDK/NDK, Gradle deps) should be pinned in its own manifest (`platformio.ini`,
+> `pubspec.lock`, Gradle) and cached with step `cache` inputs/outputs. This is
+> **container-grade *version* pinning natively** — for a pinned OS/libc too, a
+> container image is still the stronger guarantee (Ship supports both).
+
+Requires `mise` on PATH (`brew install mise`); without it Ship warns and falls
+back to host tools.
 
 ---
 
