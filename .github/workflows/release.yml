@@ -1,10 +1,21 @@
 name: Release
 
+# Manual-only backup. Releases are normally cut LOCALLY (and auto-versioned)
+# via `ship run ci/release.pkl` / `ci/release-pkl.pkl` — see docs/RELEASING.md.
+# This workflow is a thin, on-demand fallback: trigger it from the Actions tab,
+# choosing what to publish and the version tag. It never runs automatically, so
+# it can't duplicate a local release.
 on:
-  push:
-    tags:
-      - 'v*'      # binaries
-      - 'pkl-v*'  # Pkl schema package
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to release
+        type: choice
+        options: [binaries, pkl-package]
+        default: binaries
+      version:
+        description: 'Version tag (binaries: vX.Y.Z · pkl-package: pkl-vX.Y.Z)'
+        required: true
 
 permissions:
   contents: write  # create releases + upload assets
@@ -12,8 +23,10 @@ permissions:
 jobs:
   release:
     name: build & publish ship binaries
-    if: startsWith(github.ref_name, 'v')
+    if: inputs.target == 'binaries'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,8 +36,6 @@ jobs:
           cache: true
 
       - name: Build cross-platform binaries
-        env:
-          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -53,7 +64,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.version }}
+          name: ${{ inputs.version }}
           generate_release_notes: true
           files: |
             dist/ship_*
@@ -63,7 +75,7 @@ jobs:
 
   pkl-package:
     name: build & publish Pkl schema package
-    if: startsWith(github.ref_name, 'pkl-v')
+    if: inputs.target == 'pkl-package'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +95,8 @@ jobs:
       - name: Create GitHub Release (Pkl package)
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.version }}
+          name: ${{ inputs.version }}
           generate_release_notes: true
           files: |
             dist/pkl/shiphappens@*.zip

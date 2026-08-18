@@ -1,11 +1,12 @@
 name: CI
 
-# Minimal CI for a private repo — one job on pushes to main.
-# Dogfoods Ship Happens: it builds the `ship` CLI, then runs the repo's own
-# pipeline (ci/pipeline.pkl) which does the vet/test/cover/build/validate.
+# Manual-only backup. Day-to-day CI runs LOCALLY via `ship run ci/pipeline.pkl`
+# (and the pre-push git hook). This workflow is kept as a thin, on-demand
+# fallback — trigger it from the Actions tab ("Run workflow") when you want a
+# clean-VM check. It does not run automatically, so it never duplicates the
+# local pipeline.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
