@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
+	assets "github.com/chris/shiphappens"
 	"github.com/chris/shiphappens/internal/planfile"
 	"github.com/chris/shiphappens/internal/validator"
 )
@@ -88,8 +89,11 @@ func (s *Server) handle(req *rpcRequest) *rpcResponse {
 	case "initialize":
 		return reply(map[string]any{
 			"protocolVersion": protocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "shiphappens", "version": Version},
+			"capabilities": map[string]any{
+				"tools":     map[string]any{},
+				"resources": map[string]any{},
+			},
+			"serverInfo": map[string]any{"name": "shiphappens", "version": Version},
 		})
 	case "notifications/initialized", "initialized":
 		return nil // notification
@@ -99,6 +103,10 @@ func (s *Server) handle(req *rpcRequest) *rpcResponse {
 		return reply(map[string]any{"tools": s.toolSchemas()})
 	case "tools/call":
 		return s.callTool(req, reply, fail)
+	case "resources/list":
+		return reply(map[string]any{"resources": resourceList()})
+	case "resources/read":
+		return s.readResource(req, reply, fail)
 	default:
 		if len(req.ID) == 0 {
 			return nil // unknown notification
@@ -170,6 +178,11 @@ func strArg(args map[string]any, key string) string {
 		return v
 	}
 	return ""
+}
+
+func boolArg(args map[string]any, key string) bool {
+	v, _ := args[key].(bool)
+	return v
 }
 
 func (s *Server) buildTools() []toolDef {
@@ -288,6 +301,47 @@ func (s *Server) buildTools() []toolDef {
 					return nil, err
 				}
 				return toolText(out, false), nil
+			},
+		},
+		{
+			name: "ship_docs",
+			desc: "Return authoring documentation for Ship Happens pipelines. With no args, returns a concise Pkl authoring quickref (schema fields + a minimal example). Pass topic='schema' for the full pkl/ship.pkl, 'templates' for the reusable template library, or 'dx' for the full DX guide. Use this before writing a pipeline.",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"topic": map[string]any{
+						"type":        "string",
+						"enum":        []string{"quickref", "schema", "templates", "dx"},
+						"description": "quickref (default) | schema | templates | dx",
+					},
+				},
+			},
+			handler: func(args map[string]any) (any, error) {
+				switch strArg(args, "topic") {
+				case "schema":
+					return toolText(assets.SchemaPkl, false), nil
+				case "templates":
+					return toolText(assets.TemplatesPkl, false), nil
+				case "dx":
+					return toolText(assets.DXGuide, false), nil
+				default:
+					return toolText(authoringQuickref, false), nil
+				}
+			},
+		},
+		{
+			name: "ship_scaffold",
+			desc: "Write a valid starter pipeline.pkl into a target directory so you can author a Ship Happens pipeline in any repo. Resolves the correct schema import (a published Pkl package by default). Returns the path written and the file contents.",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"dir":   map[string]any{"type": "string", "description": "target directory (created if missing); defaults to the current directory"},
+					"name":  map[string]any{"type": "string", "description": "workflow name (default 'CI')"},
+					"force": map[string]any{"type": "boolean", "description": "overwrite an existing pipeline.pkl"},
+				},
+			},
+			handler: func(args map[string]any) (any, error) {
+				return scaffold(strArg(args, "dir"), strArg(args, "name"), boolArg(args, "force"))
 			},
 		},
 	}

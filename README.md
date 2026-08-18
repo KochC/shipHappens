@@ -166,15 +166,28 @@ agents and MCP-aware IDEs can drive pipelines over stdio. Register it:
 
 | Tool | What it does |
 |---|---|
+| `ship_docs` | Return authoring docs — a Pkl quickref, the full `schema`, `templates`, or the `dx` guide |
+| `ship_scaffold` | Write a valid starter `pipeline.pkl` into any directory |
 | `ship_validate` | Compile + validate a pipeline (diagnostics) |
 | `ship_graph` | Return the job dependency graph |
 | `ship_run` | Start a run **in the background**, return a `runId` immediately |
 | `ship_status` | Poll job/step progress — **read-only, never re-triggers work** |
 | `ship_cancel` · `ship_runs` · `ship_cache_du` | Cancel · list runs · cache usage |
 
+It also exposes the schema, templates, and DX guide as **MCP resources**
+(`shiphappens://schema`, `…/templates`, `…/dx`, `…/quickref`). So an agent can
+**author a pipeline from scratch in any repo**: read `ship_docs`, `ship_scaffold`
+a starter, edit it, then `ship_validate` — no prior knowledge of the schema
+needed.
+
 The async **`ship_run` → `ship_status`** split is the key: an agent starts a run
 and polls on its own cadence, never blocking and never accidentally re-running
 (status is a pure in-memory snapshot fed by live scheduler events).
+
+> **Authoring in another repo?** Scaffolded pipelines import the schema as a
+> published Pkl package — `amends "package://github.com/KochC/shipHappens/pkl/shiphappens@1.0.0#/ship.pkl"`
+> — so they resolve anywhere without vendoring. Locally, the demos amend
+> `pkl/ship.pkl` directly.
 
 ---
 

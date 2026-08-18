@@ -29,3 +29,6 @@ dist/
 
 # self-build output
 /bin/
+
+# pkl package build output
+pkl/.out/

@@ -96,6 +96,13 @@ integration:
 pkl-test:
 	go test -tags=pkl -run Integration ./internal/planfile/ -v
 
+# Build the Pkl package (schema + templates) into dist/pkl for a release, so
+# downstream repos can `amends "package://…/shiphappens@VERSION#/ship.pkl"`.
+pkl-package:
+	rm -rf dist/pkl
+	pkl project package pkl/ --output-path dist/pkl
+	@echo "wrote:" && ls dist/pkl
+
 clean:
 	rm -f $(COVER_PROFILE) coverage.html ship ship-mcp ship-egress
 	rm -rf dist

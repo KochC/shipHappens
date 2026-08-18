@@ -540,11 +540,16 @@ glob walks.
   Fires on the final result, and optionally on run start (`onStart`) and on each
   job failure (`onJob`). A failed notification never affects the build.
 - **MCP server** (`ship-mcp`): a Model Context Protocol server over stdio
-  (JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`) so agents/IDEs can
-  drive pipelines. Tools: `ship_validate`, `ship_graph`, `ship_run` (starts a
-  background run, returns a `runId`), `ship_status` (read-only poll of job/step
-  progress — never re-triggers work), `ship_cancel`, `ship_runs`,
-  `ship_cache_du`. Background runs stream scheduler events into an in-memory
+  (JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`, `resources/list`,
+  `resources/read`) so agents/IDEs can drive **and author** pipelines. Tools:
+  `ship_docs` (authoring quickref / schema / templates / DX guide),
+  `ship_scaffold` (write a valid starter `pipeline.pkl` into any dir),
+  `ship_validate`, `ship_graph`, `ship_run` (starts a background run, returns a
+  `runId`), `ship_status` (read-only poll of job/step progress — never
+  re-triggers work), `ship_cancel`, `ship_runs`, `ship_cache_du`. The schema,
+  templates, and DX guide are also exposed as MCP **resources**
+  (`shiphappens://schema|templates|dx|quickref`), embedded in the binary so they
+  work anywhere. Background runs stream scheduler events into an in-memory
   snapshot, so status polling is cheap and cold-cache-safe.
 
 ---

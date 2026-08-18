@@ -3,7 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'      # binaries
+      - 'pkl-v*'  # Pkl schema package
 
 permissions:
   contents: write  # create releases + upload assets
@@ -11,6 +12,7 @@ permissions:
 jobs:
   release:
     name: build & publish ship binaries
+    if: startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,3 +60,33 @@ jobs:
             dist/ship-mcp_*
             dist/ship-egress_*
             dist/checksums.txt
+
+  pkl-package:
+    name: build & publish Pkl schema package
+    if: startsWith(github.ref_name, 'pkl-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pkl
+        run: |
+          curl -fsSL -o /usr/local/bin/pkl \
+            https://github.com/apple/pkl/releases/download/0.28.2/pkl-linux-amd64
+          chmod +x /usr/local/bin/pkl
+          pkl --version
+
+      - name: Package the Pkl schema
+        run: pkl project package pkl/ --output-path dist/pkl
+
+      # The tag pkl-vX.Y.Z must match the version in pkl/PklProject, so the
+      # package's packageZipUrl (…/releases/download/pkl-vX.Y.Z/…) resolves.
+      - name: Create GitHub Release (Pkl package)
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/pkl/shiphappens@*.zip
+            dist/pkl/shiphappens@*.zip.sha256
+            dist/pkl/shiphappens@*.sha256
+            dist/pkl/shiphappens@*

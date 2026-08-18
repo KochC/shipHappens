@@ -529,6 +529,8 @@ Tools exposed:
 
 | Tool | What it does |
 |---|---|
+| `ship_docs` | Authoring docs: a Pkl quickref (default), or `topic=schema`/`templates`/`dx`. |
+| `ship_scaffold` | Write a valid starter `pipeline.pkl` into a target dir (any repo). |
 | `ship_validate` | Compile + validate a pipeline (diagnostics). |
 | `ship_graph` | Return the job dependency graph. |
 | `ship_run` | Start a run **in the background**, return a `runId` immediately. |
@@ -536,6 +538,13 @@ Tools exposed:
 | `ship_cancel` | Cancel a running run. |
 | `ship_runs` | List runs started this session. |
 | `ship_cache_du` | Report cache disk usage. |
+
+It also serves the schema, templates, and DX guide as MCP **resources**
+(`shiphappens://schema`, `shiphappens://templates`, `shiphappens://dx`,
+`shiphappens://quickref`), all embedded in the binary. Together these let an
+agent **author a pipeline from scratch in any repo**: read `ship_docs`,
+`ship_scaffold` a starter, edit, then `ship_validate`. Scaffolded pipelines
+import the schema as a published Pkl package, so they resolve without vendoring.
 
 The async `ship_run` + `ship_status` design is deliberate: an agent starts a run,
 then polls status on its own cadence without ever blocking or accidentally

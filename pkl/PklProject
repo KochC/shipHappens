@@ -13,7 +13,7 @@ package {
   version = "1.0.0"
   baseUri = "package://github.com/KochC/shipHappens/pkl/shiphappens"
   packageZipUrl = "https://github.com/KochC/shipHappens/releases/download/pkl-v\(version)/shiphappens@\(version).zip"
-  authors { "KochC" }
+  authors { "KochC <noreply@github.com>" }
   sourceCode = "https://github.com/KochC/shipHappens"
   license = "MIT"
 }
