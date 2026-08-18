@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/chris/shiphappens/internal/changed"
@@ -45,12 +46,14 @@ func Main(w *Workflow) {
 		engine      string
 	)
 	changedVal := &optString{}
+	mounts := &sliceFlag{}
 	fs := flag.NewFlagSet(w.Name, flag.ExitOnError)
 	fs.BoolVar(&graphOnly, "graph", false, "print the execution graph and exit")
 	fs.StringVar(&jobFlag, "job", "", "run only this job (and its dependencies)")
 	fs.BoolVar(&noCache, "no-cache", false, "disable step caching")
 	fs.StringVar(&compileOnly, "compile", "", "write the compiled plan as JSON to the given path and exit")
 	fs.StringVar(&engine, "engine", "docker", "container engine for image jobs (docker|podman)")
+	fs.Var(mounts, "mount", "extra container volume spec for image jobs (repeatable), e.g. vol:/root/.platformio")
 	fs.Var(changedVal, "changed", "run only jobs affected by git changes vs ref (default main)")
 	fs.Parse(os.Args[1:])
 	changedSet := changedVal.set
@@ -121,6 +124,7 @@ func Main(w *Workflow) {
 		NoCache: noCache,
 		Only:    only,
 		Engine:  engine,
+		Mounts:  []string(*mounts),
 	})
 
 	fmt.Println()
@@ -173,3 +177,12 @@ type optString struct {
 func (o *optString) String() string     { return o.val }
 func (o *optString) Set(s string) error  { o.set = true; o.val = s; return nil }
 func (o *optString) IsBoolFlag() bool     { return true }
+
+// sliceFlag collects repeatable string flags.
+type sliceFlag []string
+
+func (s *sliceFlag) String() string { return strings.Join(*s, ",") }
+func (s *sliceFlag) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}

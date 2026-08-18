@@ -15,7 +15,8 @@ import (
 // content-addressed cache) behave identically to native execution.
 type ContainerRunner struct {
 	Image  string
-	Engine string // "docker" (default) or "podman"
+	Engine string   // "docker" (default) or "podman"
+	Mounts []string // extra "-v" volume specs, e.g. "ship-pio-cache:/root/.platformio"
 }
 
 // Run executes step.Run via `docker run --rm -v <workdir>:/ship/work -w /ship/work <image> sh -c ...`.
@@ -30,6 +31,9 @@ func (c ContainerRunner) Run(ctx context.Context, step compiler.StepPlan, workdi
 		"run", "--rm",
 		"-v", workdir + ":/ship/work",
 		"-w", "/ship/work",
+	}
+	for _, m := range c.Mounts {
+		args = append(args, "-v", m)
 	}
 	for k, v := range env {
 		args = append(args, "-e", k+"="+v)

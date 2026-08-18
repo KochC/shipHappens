@@ -23,7 +23,8 @@ type Options struct {
 	NoCache bool
 	Only    map[string]bool // if non-nil, only these jobs run
 	MaxPar  int
-	Engine  string // container engine: "docker" (default) or "podman"
+	Engine  string   // container engine: "docker" (default) or "podman"
+	Mounts  []string // extra container volume specs applied to all image jobs
 }
 
 // Result summarizes a run.
@@ -136,7 +137,7 @@ func (s *scheduler) depsState(id string) (ready, blocked bool) {
 // the job declares an image, otherwise the NativeRunner.
 func (s *scheduler) runnerFor(job *compiler.JobPlan) runner.Runner {
 	if job.Image != "" {
-		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine}
+		return runner.ContainerRunner{Image: job.Image, Engine: s.opts.Engine, Mounts: s.opts.Mounts}
 	}
 	return runner.NativeRunner{}
 }
