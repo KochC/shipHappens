@@ -107,6 +107,13 @@ type StepPlan struct {
 	ContinueOnError bool `json:"continueOnError,omitempty"`
 	// If is a conditional expression; the step is skipped when it evaluates false.
 	If string `json:"if,omitempty"`
+	// Needs declares step-level dependencies within the job. When any step has
+	// Needs, the job's steps run as a DAG (parallel where possible) instead of
+	// sequentially. Empty Needs on all steps preserves sequential order.
+	Needs []string `json:"needs,omitempty"`
+	// OnFailure is a sub-graph of steps run only when this step fails — e.g. to
+	// collect logs or post an error report. Their failure does not re-trigger.
+	OnFailure []StepPlan `json:"onFailure,omitempty"`
 }
 
 // CacheSpec describes how a step's result may be cached. Only steps with a

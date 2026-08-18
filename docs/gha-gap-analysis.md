@@ -140,6 +140,9 @@ Implemented since the initial analysis:
   reachable by name, torn down after the job.
 - **Supply-chain security**: `OfflineByDefault()`, per-job `Allow(...)` egress
   allow-lists, and `Sanitize`/`SafeIdentifier` input helpers.
+- **Step sub-graphs**: step-level `needs` (a DAG within a job, parallel where
+  possible) and `onFailure` handler steps — GHA has no equivalent (its steps are
+  strictly sequential).
 
 Still open in Tier 2: **uploadable artifacts** (beyond resume cache) and named
 **concurrency groups**.

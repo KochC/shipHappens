@@ -111,27 +111,36 @@ func lowerJob(j *Job, id string, extraEnv map[string]string, needs []string) com
 		})
 	}
 	for _, s := range j.steps {
-		sp := compiler.StepPlan{
-			ID:              s.name,
-			Run:             s.run,
-			Env:             s.env,
-			WorkingDir:      s.workingDir,
-			Shell:           s.shell,
-			TimeoutSec:      s.timeoutSec,
-			Retries:         s.retries,
-			RetryBackoffSec: s.retryBackoffSec,
-			ContinueOnError: s.continueOnError,
-			If:              s.ifExpr,
-		}
-		if s.cache != nil {
-			sp.Cache = &compiler.CacheSpec{
-				Inputs:  append([]string(nil), s.cache.inputs...),
-				Outputs: append([]string(nil), s.cache.outputs...),
-			}
-		}
-		jp.Steps = append(jp.Steps, sp)
+		jp.Steps = append(jp.Steps, lowerStep(s))
 	}
 	return jp
+}
+
+// lowerStep lowers a DSL Step (recursively, for onFailure handlers).
+func lowerStep(s *Step) compiler.StepPlan {
+	sp := compiler.StepPlan{
+		ID:              s.name,
+		Run:             s.run,
+		Env:             s.env,
+		WorkingDir:      s.workingDir,
+		Shell:           s.shell,
+		TimeoutSec:      s.timeoutSec,
+		Retries:         s.retries,
+		RetryBackoffSec: s.retryBackoffSec,
+		ContinueOnError: s.continueOnError,
+		If:              s.ifExpr,
+		Needs:           append([]string(nil), s.needs...),
+	}
+	if s.cache != nil {
+		sp.Cache = &compiler.CacheSpec{
+			Inputs:  append([]string(nil), s.cache.inputs...),
+			Outputs: append([]string(nil), s.cache.outputs...),
+		}
+	}
+	for _, h := range s.onFailure {
+		sp.OnFailure = append(sp.OnFailure, lowerStep(h))
+	}
+	return sp
 }
 
 type matrixCombo struct {

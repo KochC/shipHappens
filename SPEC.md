@@ -408,9 +408,25 @@ wf.Job("release").
   as the job's outputs. Dependents receive them as environment variables
   `$OUTPUTS_<JOB>_<KEY>` (uppercased, non-alnum → `_`) and can reference
   `outputs.<job>.<key>` in `if:`. This is the data-flow channel between jobs.
+- **Step sub-graphs** — steps may declare `needs` (other step ids in the same
+  job). When any step has `needs`, the job's steps run as a **DAG** (parallel
+  where possible) instead of sequentially; with no `needs` the classic
+  sequential order is preserved. A step whose dependency failed is skipped.
+  Validation rejects unknown step needs, self-references, and step cycles.
+- **`onFailure` handlers** — a step may attach a sub-graph of handler steps that
+  run only when it fails (e.g. collect logs, post an error report to the PR).
+  Handler outcomes don't change the original step's failure.
+
+  Example — the smoke test gates the final push while setup/compile run early:
+
+  ```
+  deploy:
+    setup   ─┐
+    compile ─┴─▶ smoke ─▶ push        (setup ∥ compile, then smoke, then push)
+    suite: onFailure → report          (report runs only if suite fails)
+  ```
 
 ### 6.8 Services (sidecars)
-
 A job may declare **services** (sidecar containers, e.g. a database). Before the
 job's steps run, the scheduler creates a dedicated network, starts each service
 on it (reachable from container steps by its `name`), optionally waits for a

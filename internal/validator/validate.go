@@ -54,6 +54,7 @@ func Validate(p *compiler.RunPlan, lines map[string]string) []Diagnostic {
 				diags = append(diags, Diagnostic{Loc: loc(j.ID), Msg: fmt.Sprintf("job %q step %q has no run command", j.ID, s.ID)})
 			}
 		}
+		diags = append(diags, validateStepGraph(j, loc(j.ID))...)
 		for _, sec := range j.Secrets {
 			if sec.Name == "" {
 				diags = append(diags, Diagnostic{Loc: loc(j.ID), Msg: fmt.Sprintf("job %q has a secret with an empty name", j.ID)})

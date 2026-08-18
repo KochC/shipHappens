@@ -107,6 +107,11 @@ class Step {
   /// Conditional expression; the step is skipped when it evaluates false.
   /// May reference outputs.self.<key> for this job's captured outputs.
   `if`: String?
+  /// Step-level dependencies (other step ids in this job). When any step has
+  /// needs, the job's steps run as a DAG (parallel where possible).
+  needs: Listing<String>?
+  /// Handler steps run only if this step fails (e.g. collect logs / report).
+  onFailure: Listing<Step>?
 }
 
 /// A DAG node. Runs its steps sequentially on one runner.
@@ -208,6 +213,22 @@ output {
                 when (st.retryBackoffSec > 0) { ["retryBackoffSec"] = st.retryBackoffSec }
                 when (st.continueOnError) { ["continueOnError"] = true }
                 when (st.`if` != null) { ["if"] = st.`if` }
+                when (st.needs != null) { ["needs"] = st.needs }
+                when (st.onFailure != null) {
+                  ["onFailure"] = new Listing {
+                    for (h in st.onFailure!!) {
+                      new Dynamic {
+                        ["id"] = h.id
+                        ["run"] = h.run
+                        when (h.env != null) { ["env"] = h.env }
+                        when (h.workingDir != null) { ["workingDir"] = h.workingDir }
+                        when (h.shell != null) { ["shell"] = h.shell }
+                        when (h.`if` != null) { ["if"] = h.`if` }
+                        when (h.continueOnError) { ["continueOnError"] = true }
+                      }
+                    }
+                  }
+                }
               }
             }
           }

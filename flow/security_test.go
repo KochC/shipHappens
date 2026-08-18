@@ -81,3 +81,29 @@ func TestIfStepIfNoStepNoop(t *testing.T) {
 		t.Error("StepIf before Run should not attach to later step")
 	}
 }
+
+func TestLowerStepNeedsAndOnFailure(t *testing.T) {
+	wf := New("W")
+	wf.Job("j").
+		Run("setup", "s1").
+		Run("compile", "s2").
+		Run("smoke", "s3").StepNeeds("setup", "compile").
+			OnFailure(Handler("report", "echo fail"), Handler("cleanup", "echo clean"))
+	j := wf.ToPlan().Jobs[0]
+	smoke := j.Steps[2]
+	if len(smoke.Needs) != 2 || smoke.Needs[0] != "setup" {
+		t.Fatalf("step needs not lowered: %+v", smoke.Needs)
+	}
+	if len(smoke.OnFailure) != 2 || smoke.OnFailure[0].ID != "report" || smoke.OnFailure[1].Run != "echo clean" {
+		t.Fatalf("onFailure not lowered: %+v", smoke.OnFailure)
+	}
+}
+
+func TestStepNeedsOnFailureNoStepNoop(t *testing.T) {
+	wf := New("W")
+	wf.Job("j").StepNeeds("x").OnFailure(Handler("h", "c")).Run("s", "cmd")
+	st := wf.ToPlan().Jobs[0].Steps[0]
+	if len(st.Needs) != 0 || len(st.OnFailure) != 0 {
+		t.Error("step-graph options before Run should not attach to later step")
+	}
+}

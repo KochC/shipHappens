@@ -74,6 +74,8 @@ type Step struct {
 	retryBackoffSec int
 	continueOnError bool
 	ifExpr          string
+	needs           []string
+	onFailure       []*Step
 }
 
 type cacheSpec struct {
@@ -326,6 +328,29 @@ func (j *Job) StepContinueOnError() *Job {
 	}
 	return j
 }
+
+// StepNeeds declares step-level dependencies (by step name) for the most
+// recently added step. When any step in a job has needs, the job's steps run as
+// a DAG (parallel where possible) instead of sequentially.
+func (j *Job) StepNeeds(names ...string) *Job {
+	if s := j.lastStep(); s != nil {
+		s.needs = append(s.needs, names...)
+	}
+	return j
+}
+
+// OnFailure attaches a sub-graph of steps to the most recently added step, run
+// only when that step fails (e.g. to collect logs or post an error report).
+// Handler steps are built with Handler(name, command).
+func (j *Job) OnFailure(handlers ...*Step) *Job {
+	if s := j.lastStep(); s != nil {
+		s.onFailure = append(s.onFailure, handlers...)
+	}
+	return j
+}
+
+// Handler builds a step for use in OnFailure(...).
+func Handler(name, command string) *Step { return &Step{name: name, run: command} }
 
 // ID exposes the job id.
 func (j *Job) ID() string { return j.id }

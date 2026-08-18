@@ -393,47 +393,11 @@ func (s *scheduler) runJob(ctx context.Context, job *compiler.JobPlan) {
 	}
 	captured := map[string]string{}
 
-	for _, step := range job.Steps {
-		// Step conditional.
-		if step.If != "" {
-			ok, err := s.evalIf(step.If, job, captured)
-			if err != nil {
-				logs.Step(job.ID, step.ID, fmt.Sprintf("invalid if: %v", err), false, false)
-				jobFailed = true
-				break
-			}
-			if !ok {
-				logs.Step(job.ID, step.ID, "skipped (if=false)", true, false)
-				continue
-			}
-		}
-
-		stepEnv := effEnv
-		if outEnvVal != "" {
-			stepEnv = withOutput(effEnv, outEnvVal)
-		}
-
-		cached, ok := s.execStep(jobCtx, run, job, step, stepEnv, cacheEnv, out)
-
-		// Capture any outputs the step wrote.
-		if outFile != "" {
-			if kv, _ := outputs.Parse(outFile); len(kv) > 0 {
-				for k, v := range kv {
-					captured[k] = v
-				}
-			}
-		}
-
-		if cached || ok {
-			continue
-		}
-		if step.ContinueOnError {
-			logs.Step(job.ID, step.ID, "failed (continue-on-error)", false, false)
-			continue
-		}
-		jobFailed = true
-		break
+	sc := &stepCtx{
+		job: job, run: run, effEnv: effEnv, cacheEnv: cacheEnv,
+		outFile: outFile, outEnvVal: outEnvVal, captured: captured, out: out,
 	}
+	jobFailed = s.runSteps(jobCtx, sc, job.Steps)
 
 	// continue-on-error at job level: a failed job does not fail the run or
 	// cancel siblings; dependents still run (treated as satisfied).
@@ -623,6 +587,190 @@ func (s *scheduler) cleanAfter(job *compiler.JobPlan) {
 			_ = os.RemoveAll(m)
 		}
 	}
+}
+
+// stepCtx bundles the per-job state needed to run a step (or step sub-graph).
+type stepCtx struct {
+	job       *compiler.JobPlan
+	run       runner.Runner
+	effEnv    map[string]string
+	cacheEnv  map[string]string
+	outFile   string
+	outEnvVal string
+	captured  map[string]string
+	capMu     sync.Mutex
+	out       io.Writer
+}
+
+// runSteps executes a job's steps. If any step declares Needs, the steps run as
+// a DAG (parallel where possible); otherwise they run sequentially in order
+// (the default, preserving classic semantics). Returns whether the job failed.
+func (s *scheduler) runSteps(ctx context.Context, sc *stepCtx, steps []compiler.StepPlan) bool {
+	hasDeps := false
+	for _, st := range steps {
+		if len(st.Needs) > 0 {
+			hasDeps = true
+			break
+		}
+	}
+	if !hasDeps {
+		return s.runStepsSequential(ctx, sc, steps)
+	}
+	return s.runStepsDAG(ctx, sc, steps)
+}
+
+// runStepsSequential runs steps in order, stopping at the first fatal failure.
+func (s *scheduler) runStepsSequential(ctx context.Context, sc *stepCtx, steps []compiler.StepPlan) bool {
+	for _, step := range steps {
+		st, fatal := s.runJobStep(ctx, sc, step)
+		if st == stepSkipped || st == stepOK {
+			continue
+		}
+		if fatal {
+			return true
+		}
+	}
+	return false
+}
+
+// runStepsDAG runs steps respecting step-level Needs, with parallelism.
+func (s *scheduler) runStepsDAG(ctx context.Context, sc *stepCtx, steps []compiler.StepPlan) bool {
+	var mu sync.Mutex
+	claimed := map[string]bool{} // started or terminal
+	finished := map[string]bool{}
+	failed := map[string]bool{}
+	jobFailed := false
+
+	// depsOK: all deps finished successfully (ready), or a dep failed (blocked).
+	depsOK := func(st compiler.StepPlan) (ready, blocked bool) {
+		for _, n := range st.Needs {
+			if failed[n] {
+				return false, true
+			}
+			if !finished[n] {
+				return false, false
+			}
+		}
+		return true, false
+	}
+
+	var wg sync.WaitGroup
+	var launch func()
+	launch = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, st := range steps {
+			if claimed[st.ID] {
+				continue
+			}
+			ready, blocked := depsOK(st)
+			if blocked {
+				claimed[st.ID] = true
+				finished[st.ID] = true
+				failed[st.ID] = true
+				jobFailed = true
+				logs.Step(sc.job.ID, st.ID, "skipped (dependency failed)", false, false)
+				continue
+			}
+			if !ready {
+				continue
+			}
+			claimed[st.ID] = true
+			st := st
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				status, fatal := s.runJobStep(ctx, sc, st)
+				mu.Lock()
+				finished[st.ID] = true
+				if status == stepFailed && fatal {
+					failed[st.ID] = true
+					jobFailed = true
+				}
+				mu.Unlock()
+				launch()
+			}()
+		}
+	}
+	launch()
+	wg.Wait()
+	return jobFailed
+}
+
+type stepStatus int
+
+const (
+	stepOK stepStatus = iota
+	stepSkipped
+	stepFailed
+)
+
+// runJobStep runs a single step: evaluates its If, executes it (with retries/
+// timeout via execStep), captures outputs, handles continue-on-error and the
+// onFailure sub-graph. Returns the status and whether a failure is fatal to the
+// job.
+func (s *scheduler) runJobStep(ctx context.Context, sc *stepCtx, step compiler.StepPlan) (stepStatus, bool) {
+	// Conditional.
+	if step.If != "" {
+		ok, err := s.evalIf(step.If, sc.job, sc.snapshotCaptured())
+		if err != nil {
+			logs.Step(sc.job.ID, step.ID, fmt.Sprintf("invalid if: %v", err), false, false)
+			return stepFailed, true
+		}
+		if !ok {
+			logs.Step(sc.job.ID, step.ID, "skipped (if=false)", true, false)
+			return stepSkipped, false
+		}
+	}
+
+	stepEnv := sc.effEnv
+	if sc.outEnvVal != "" {
+		stepEnv = withOutput(sc.effEnv, sc.outEnvVal)
+	}
+
+	cached, ok := s.execStep(ctx, sc.run, sc.job, step, stepEnv, sc.cacheEnv, sc.out)
+	sc.captureOutputs()
+
+	if cached || ok {
+		return stepOK, false
+	}
+
+	// Failure: run the onFailure sub-graph (best-effort; its outcome doesn't
+	// change the step's failure).
+	if len(step.OnFailure) > 0 {
+		logs.Step(sc.job.ID, step.ID, "running onFailure handlers", false, false)
+		_ = s.runStepsSequential(ctx, sc, step.OnFailure)
+	}
+
+	if step.ContinueOnError {
+		logs.Step(sc.job.ID, step.ID, "failed (continue-on-error)", false, false)
+		return stepFailed, false
+	}
+	return stepFailed, true
+}
+
+// captureOutputs merges any $SHIP_OUTPUT the last step wrote into sc.captured.
+func (sc *stepCtx) captureOutputs() {
+	if sc.outFile == "" {
+		return
+	}
+	if kv, _ := outputs.Parse(sc.outFile); len(kv) > 0 {
+		sc.capMu.Lock()
+		for k, v := range kv {
+			sc.captured[k] = v
+		}
+		sc.capMu.Unlock()
+	}
+}
+
+func (sc *stepCtx) snapshotCaptured() map[string]string {
+	sc.capMu.Lock()
+	defer sc.capMu.Unlock()
+	cp := make(map[string]string, len(sc.captured))
+	for k, v := range sc.captured {
+		cp[k] = v
+	}
+	return cp
 }
 
 // execStep runs one step (consulting cache). Returns (cachedHit, ok). effEnv is

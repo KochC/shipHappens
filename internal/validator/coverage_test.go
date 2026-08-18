@@ -63,3 +63,36 @@ func containsMsg(ds []Diagnostic, sub string) bool {
 	}
 	return false
 }
+
+func TestStepGraphUnknownAndCycle(t *testing.T) {
+	// unknown step need
+	p := &compiler.RunPlan{Jobs: []compiler.JobPlan{
+		{ID: "j", RunsOn: "native", Steps: []compiler.StepPlan{
+			{ID: "a", Run: "x", Needs: []string{"ghost"}},
+		}},
+	}}
+	if !containsMsg(Validate(p, nil), "unknown step") {
+		t.Error("expected unknown-step diagnostic")
+	}
+
+	// self-reference
+	p = &compiler.RunPlan{Jobs: []compiler.JobPlan{
+		{ID: "j", RunsOn: "native", Steps: []compiler.StepPlan{
+			{ID: "a", Run: "x", Needs: []string{"a"}},
+		}},
+	}}
+	if !containsMsg(Validate(p, nil), "needs itself") {
+		t.Error("expected step self-need diagnostic")
+	}
+
+	// cycle
+	p = &compiler.RunPlan{Jobs: []compiler.JobPlan{
+		{ID: "j", RunsOn: "native", Steps: []compiler.StepPlan{
+			{ID: "a", Run: "x", Needs: []string{"b"}},
+			{ID: "b", Run: "x", Needs: []string{"a"}},
+		}},
+	}}
+	if !containsMsg(Validate(p, nil), "step cycle") {
+		t.Error("expected step cycle diagnostic")
+	}
+}
