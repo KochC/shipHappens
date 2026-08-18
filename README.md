@@ -106,18 +106,27 @@ See how it compares to GitHub Actions: [docs/gha-gap-analysis.md](docs/gha-gap-a
 Install the `ship` CLI (Pkl pipelines also need the [`pkl`](https://pkl-lang.org)
 CLI — e.g. `brew install pkl`).
 
-**Install script** (prebuilt binary from the latest GitHub Release):
+**Install script** (prebuilt binary from a GitHub Release):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh | bash
 # pin a version / dir:
-curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh | VERSION=v0.1.0 BINDIR=~/.local/bin bash
+curl -fsSL .../install.sh | VERSION=v0.1.0 BINDIR=~/.local/bin bash
 ```
 
-**With Go** (any tagged version, or `@latest`):
+The repo is currently **private**, so the script downloads via the GitHub CLI
+(`gh auth login`) when available, or a `GITHUB_TOKEN`:
 
 ```bash
-go install github.com/chris/shiphappens/cmd/ship@latest
+gh auth login                                   # once
+curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh | bash
+# or:  GITHUB_TOKEN=ghp_… bash install.sh
+```
+
+**With Go** (handles private repos via your git auth):
+
+```bash
+go install github.com/chris/shiphappens/cmd/ship@v0.1.0   # or @latest
 ```
 
 **Prebuilt binaries:** grab a `ship_<version>_<os>_<arch>` asset from the

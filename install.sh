@@ -29,10 +29,16 @@ esac
 
 # ── resolve version ─────────────────────────────────────────────────────────
 if [ "$VERSION" = "latest" ]; then
-  VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+  if command -v gh >/dev/null 2>&1; then
+    VERSION="$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null || true)"
+  else
+    api="https://api.github.com/repos/${REPO}/releases/latest"
+    auth=(); [ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    VERSION="$(curl -fsSL "${auth[@]}" "$api" 2>/dev/null \
+      | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+  fi
   if [ -z "$VERSION" ]; then
-    echo "could not resolve latest version (no releases yet?)" >&2
+    echo "could not resolve latest version (private repo without gh/GITHUB_TOKEN, or no releases)" >&2
     exit 1
   fi
 fi
@@ -43,14 +49,28 @@ url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
 echo "Installing ship ${VERSION} (${os}/${arch})…"
 
 tmp="$(mktemp)"
-if ! curl -fsSL -o "$tmp" "$url"; then
-  echo "download failed: $url" >&2
-  exit 1
+# Private repos: release assets require auth. Prefer `gh` when available, else
+# use $GITHUB_TOKEN, else try an unauthenticated download (works for public repos).
+if command -v gh >/dev/null 2>&1; then
+  if ! gh release download "$VERSION" --repo "$REPO" --pattern "$asset" --output "$tmp" --clobber 2>/dev/null; then
+    echo "gh download failed" >&2; exit 1
+  fi
+elif [ -n "${GITHUB_TOKEN:-}" ]; then
+  if ! curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o "$tmp" "$url"; then
+    echo "authenticated download failed: $url" >&2; exit 1
+  fi
+else
+  if ! curl -fsSL -o "$tmp" "$url"; then
+    echo "download failed: $url" >&2
+    echo "(private repo? install the GitHub CLI \`gh\` or set GITHUB_TOKEN)" >&2
+    exit 1
+  fi
 fi
 chmod +x "$tmp"
 
 # ── choose install dir ──────────────────────────────────────────────────────
 bindir="${BINDIR:-/usr/local/bin}"
+mkdir -p "$bindir" 2>/dev/null || true
 if [ ! -w "$bindir" ]; then
   bindir="${HOME}/.local/bin"
   mkdir -p "$bindir"
