@@ -4,7 +4,9 @@ COVER_PROFILE := coverage.out
 
 # Packages to measure. Exclude example workflows (mains) and the compiler
 # package (pure type/IR definitions with no logic to test).
-PKGS := $(shell go list ./... | grep -vE '/workflows/|/internal/compiler')
+# Packages to measure. Exclude example workflows/demos, the CLI main, and the
+# compiler package (pure type/IR definitions) — none have unit tests by design.
+PKGS := $(shell go list ./... | grep -vE '/workflows/|/demos/|/cmd/|/internal/compiler')
 
 .PHONY: all build ship install test vet race cover cover-html cover-check integration pkl-test clean
 
