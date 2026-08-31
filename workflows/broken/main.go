@@ -5,7 +5,7 @@
 //	go run ./workflows/broken
 package main
 
-import "github.com/chris/shiphappens/flow"
+import "github.com/KochC/shipHappens/flow"
 
 func main() {
 	wf := flow.New("Broken")

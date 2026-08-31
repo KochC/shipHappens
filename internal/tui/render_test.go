@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 func TestStartStopRendersWithColor(t *testing.T) {

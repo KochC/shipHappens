@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/toolchain"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/toolchain"
 )
 
 func TestToolchainAdvisoryFallback(t *testing.T) {

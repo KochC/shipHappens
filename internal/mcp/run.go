@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chris/shiphappens/internal/planfile"
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/planfile"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 // runState is the observable state of a background pipeline run.

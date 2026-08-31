@@ -1,6 +1,6 @@
 package flow
 
-import "github.com/chris/shiphappens/internal/security"
+import "github.com/KochC/shipHappens/internal/security"
 
 // Sanitize neutralizes shell-injection metacharacters in an untrusted string
 // (e.g. a PR title, commit message, or branch name) before it is exposed to a

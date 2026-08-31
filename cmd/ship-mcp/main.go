@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chris/shiphappens/internal/logs"
-	"github.com/chris/shiphappens/internal/mcp"
+	"github.com/KochC/shipHappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/mcp"
 )
 
 // version is set at build time via -ldflags "-X main.version=v1.2.3".

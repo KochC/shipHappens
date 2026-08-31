@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // withStubExec swaps execRun for the duration of a test.

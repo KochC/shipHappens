@@ -3,7 +3,7 @@ package flow
 import (
 	"sort"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // ToPlan lowers the author DSL into the compiler's raw plan (pre-validation).

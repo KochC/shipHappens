@@ -17,8 +17,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/chris/shiphappens/flow"
-	"github.com/chris/shiphappens/internal/cache"
+	"github.com/KochC/shipHappens/flow"
+	"github.com/KochC/shipHappens/internal/cache"
 )
 
 // version is set at build time via -ldflags "-X main.version=v1.2.3".

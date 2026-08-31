@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // ContainerRunner runs steps inside a container. The job's working directory is

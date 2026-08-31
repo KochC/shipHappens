@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // stubServiceExec swaps the ctx-aware exec indirections for services tests.

@@ -8,7 +8,7 @@
 // skipped, while an unrelated parallel branch still completes. Exits non-zero.
 package main
 
-import "github.com/chris/shiphappens/flow"
+import "github.com/KochC/shipHappens/flow"
 
 func main() {
 	wf := flow.New("Fail-Fast Demo")

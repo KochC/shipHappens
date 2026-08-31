@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // Services manages sidecar containers for a job: it creates a dedicated network,

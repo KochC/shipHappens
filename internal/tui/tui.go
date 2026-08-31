@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 // out is the render sink (overridable in tests).

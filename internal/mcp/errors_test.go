@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 // stubFailRun makes the manager run a fake pipeline that fails a job with rich

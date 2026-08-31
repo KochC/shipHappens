@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/changed"
-	"github.com/chris/shiphappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/changed"
+	"github.com/KochC/shipHappens/internal/logs"
 )
 
 func quietLogs(t *testing.T) {

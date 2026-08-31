@@ -15,7 +15,7 @@
 // input), so editing this file invalidates the affected jobs on the next run.
 package main
 
-import "github.com/chris/shiphappens/flow"
+import "github.com/KochC/shipHappens/flow"
 
 func main() {
 	wf := flow.New("Resume Demo")

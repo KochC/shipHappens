@@ -22,7 +22,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/chris/shiphappens/internal/egress"
+	"github.com/KochC/shipHappens/internal/egress"
 )
 
 func main() {

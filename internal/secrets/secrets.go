@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // Resolver reads secret values from the host process environment.

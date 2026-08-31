@@ -8,7 +8,7 @@
 // $OS and $GO set. `flaky` demonstrates retries; `optional` is a non-fatal job.
 package main
 
-import "github.com/chris/shiphappens/flow"
+import "github.com/KochC/shipHappens/flow"
 
 func main() {
 	wf := flow.New("Matrix + Robustness")

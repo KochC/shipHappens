@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/runner"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/runner"
 )
 
 func stubPreheat(t *testing.T, ret error) func() {

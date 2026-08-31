@@ -1,7 +1,7 @@
 // Package graph provides DAG utilities over a compiled RunPlan.
 package graph
 
-import "github.com/chris/shiphappens/internal/compiler"
+import "github.com/KochC/shipHappens/internal/compiler"
 
 // DAG is an execution graph derived from a RunPlan.
 type DAG struct {

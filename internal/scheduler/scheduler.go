@@ -13,16 +13,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chris/shiphappens/internal/cache"
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/expr"
-	"github.com/chris/shiphappens/internal/graph"
-	"github.com/chris/shiphappens/internal/logs"
-	"github.com/chris/shiphappens/internal/outputs"
-	"github.com/chris/shiphappens/internal/runner"
-	"github.com/chris/shiphappens/internal/secrets"
-	"github.com/chris/shiphappens/internal/security"
-	"github.com/chris/shiphappens/internal/toolchain"
+	"github.com/KochC/shipHappens/internal/cache"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/expr"
+	"github.com/KochC/shipHappens/internal/graph"
+	"github.com/KochC/shipHappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/outputs"
+	"github.com/KochC/shipHappens/internal/runner"
+	"github.com/KochC/shipHappens/internal/secrets"
+	"github.com/KochC/shipHappens/internal/security"
+	"github.com/KochC/shipHappens/internal/toolchain"
 )
 
 // Options configure a run.

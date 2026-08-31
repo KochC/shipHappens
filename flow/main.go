@@ -11,14 +11,14 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/chris/shiphappens/internal/changed"
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/graph"
-	"github.com/chris/shiphappens/internal/logs"
-	"github.com/chris/shiphappens/internal/notify"
-	"github.com/chris/shiphappens/internal/runner"
-	"github.com/chris/shiphappens/internal/scheduler"
-	"github.com/chris/shiphappens/internal/tui"
+	"github.com/KochC/shipHappens/internal/changed"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/graph"
+	"github.com/KochC/shipHappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/notify"
+	"github.com/KochC/shipHappens/internal/runner"
+	"github.com/KochC/shipHappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/tui"
 )
 
 // writePlan serializes the compiled plan to a JSON artifact ("Terraform plan,

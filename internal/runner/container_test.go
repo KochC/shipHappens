@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 func argsStr(a []string) string { return strings.Join(a, " ") }

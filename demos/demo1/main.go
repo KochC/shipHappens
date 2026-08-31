@@ -8,7 +8,7 @@
 // finishes, with live elapsed timers. The --tui flag is enabled automatically.
 package main
 
-import "github.com/chris/shiphappens/flow"
+import "github.com/KochC/shipHappens/flow"
 
 func main() {
 	wf := flow.New("Parallel Build")

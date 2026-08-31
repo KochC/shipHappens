@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/logs"
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 func TestPrintFailureDigest(t *testing.T) {

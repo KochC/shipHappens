@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // StepResult is the outcome of executing a step.

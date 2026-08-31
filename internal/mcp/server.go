@@ -8,9 +8,9 @@ import (
 	"os/exec"
 	"strings"
 
-	assets "github.com/chris/shiphappens"
-	"github.com/chris/shiphappens/internal/planfile"
-	"github.com/chris/shiphappens/internal/validator"
+	assets "github.com/KochC/shipHappens"
+	"github.com/KochC/shipHappens/internal/planfile"
+	"github.com/KochC/shipHappens/internal/validator"
 )
 
 // protocolVersion is the MCP revision this server implements.

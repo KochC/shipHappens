@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // NativeRunner runs steps as local shell commands.

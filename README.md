@@ -315,7 +315,7 @@ curl -fsSL https://raw.githubusercontent.com/KochC/shipHappens/main/install.sh |
 <summary><b>With Go</b> (handles private repos via your git auth)</summary>
 
 ```bash
-go install github.com/chris/shiphappens/cmd/ship@v0.1.0   # or @latest
+go install github.com/KochC/shipHappens/cmd/ship@v0.1.0   # or @latest
 ```
 
 </details>

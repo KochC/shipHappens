@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 func TestStepDAGParallelAndOrder(t *testing.T) {

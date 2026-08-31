@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // OverlayRunner runs a container job with an overlayfs mount: the bind-mounted

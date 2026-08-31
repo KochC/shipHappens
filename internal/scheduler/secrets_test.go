@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/logs"
-	"github.com/chris/shiphappens/internal/secrets"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/secrets"
 )
 
 func TestWorkflowVarsReachSteps(t *testing.T) {

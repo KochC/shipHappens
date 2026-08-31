@@ -13,7 +13,7 @@
 // written to the compiled plan, and fail the run fast if absent.
 package main
 
-import "github.com/chris/shiphappens/flow"
+import "github.com/KochC/shipHappens/flow"
 
 func main() {
 	wf := flow.New("Deploy Pipeline").

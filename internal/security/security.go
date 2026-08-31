@@ -4,7 +4,7 @@
 // network, and when they do, egress is scoped to an allow-list.
 package security
 
-import "github.com/chris/shiphappens/internal/compiler"
+import "github.com/KochC/shipHappens/internal/compiler"
 
 // NetMode is the resolved networking decision for a job.
 type NetMode int

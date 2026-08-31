@@ -6,7 +6,7 @@ import (
 	"net"
 	"runtime"
 
-	"github.com/chris/shiphappens/internal/egress"
+	"github.com/KochC/shipHappens/internal/egress"
 )
 
 // EgressProxy is a host-side filtering forward-proxy that enforces a job's

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	assets "github.com/chris/shiphappens"
+	assets "github.com/KochC/shipHappens"
 )
 
 // ── MCP resources: authoring docs served to agents ───────────────────────────

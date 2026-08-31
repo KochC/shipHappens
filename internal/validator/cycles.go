@@ -1,6 +1,6 @@
 package validator
 
-import "github.com/chris/shiphappens/internal/compiler"
+import "github.com/KochC/shipHappens/internal/compiler"
 
 // findCycle returns a cycle path (job ids) if the needs-graph has one, else nil.
 // Edges point from a job to each job it needs.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 func TestObserverTracksJobLifecycle(t *testing.T) {

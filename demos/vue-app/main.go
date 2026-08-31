@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/chris/shiphappens/flow"
+	"github.com/KochC/shipHappens/flow"
 )
 
 const img = "node:20-alpine"

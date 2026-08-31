@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/shiphappens/internal/logs"
-	"github.com/chris/shiphappens/internal/scheduler"
+	"github.com/KochC/shipHappens/internal/logs"
+	"github.com/KochC/shipHappens/internal/scheduler"
 )
 
 // call drives a single JSON-RPC request through the server and returns the

@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 // testImage is a tiny image that has a POSIX shell. Override with SHIP_TEST_IMAGE.

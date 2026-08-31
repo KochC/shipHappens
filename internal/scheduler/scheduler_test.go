@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/chris/shiphappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/compiler"
 )
 
 func step(run string) compiler.StepPlan { return compiler.StepPlan{ID: "s", Run: run} }

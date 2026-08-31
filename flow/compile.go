@@ -3,8 +3,8 @@ package flow
 import (
 	"strings"
 
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/validator"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/validator"
 )
 
 // CompileError wraps validation diagnostics.

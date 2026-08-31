@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/chris/shiphappens/internal/compiler"
-	"github.com/chris/shiphappens/internal/graph"
+	"github.com/KochC/shipHappens/internal/compiler"
+	"github.com/KochC/shipHappens/internal/graph"
 )
 
 // gitDiff is the injection point for running `git diff --name-only` (overridable
